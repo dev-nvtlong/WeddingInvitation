@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { X, Copy, Check, ExternalLink, MessageSquareShare } from "lucide-react";
 import type { Guest } from "../types/guestManagement";
+import { getGuestInvitationUrl } from "../utils/guestList";
 
 interface QRModalProps {
   guest: Guest | null;
@@ -14,8 +15,7 @@ export default function QRModal({ guest, isOpen, onClose }: QRModalProps) {
 
   if (!isOpen || !guest) return null;
 
-  const baseUrl = typeof window !== "undefined" ? window.location.origin + window.location.pathname : "";
-  const inviteUrl = `${baseUrl}?g=${guest.code}`;
+  const inviteUrl = getGuestInvitationUrl(guest.code);
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=15&data=${encodeURIComponent(
     inviteUrl
   )}`;

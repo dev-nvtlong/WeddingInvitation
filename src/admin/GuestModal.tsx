@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X, User, Phone, Users, Calendar, Hash, FileText } from "lucide-react";
 import type { Guest, InvitedEventType } from "../types/guestManagement";
-import { generateGuestSlug } from "../services/guestStorage";
+import { generateGuestSlug, getGuests } from "../services/guestStorage";
 
 interface GuestModalProps {
   guest?: Guest | null;
@@ -33,6 +33,7 @@ export default function GuestModal({ guest, isOpen, onClose, onSave }: GuestModa
   const [invitedTo, setInvitedTo] = useState<InvitedEventType>(guest?.invitedTo || "thiep_chu_re");
   const [expectedCount, setExpectedCount] = useState<number>(guest?.expectedCount || 1);
   const [notes, setNotes] = useState(guest?.notes || "");
+  const [error, setError] = useState("");
 
   if (!isOpen) return null;
 
@@ -46,11 +47,16 @@ export default function GuestModal({ guest, isOpen, onClose, onSave }: GuestModa
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim()) return;
+    const guestCode = code.trim() || generateGuestSlug(fullName.trim());
+    if (getGuests().some((item) => item.id !== guest?.id && item.code.toLowerCase() === guestCode.toLowerCase())) {
+      setError("Mã link này đã được sử dụng. Vui lòng chọn mã khác.");
+      return;
+    }
 
     const data = {
       ...(guest || {}),
       fullName: fullName.trim(),
-      code: code.trim() || generateGuestSlug(fullName.trim()),
+      code: guestCode,
       phone: phone.trim(),
       group: group.trim() || "Bạn Bè",
       invitedTo,
@@ -64,7 +70,7 @@ export default function GuestModal({ guest, isOpen, onClose, onSave }: GuestModa
 
   return (
     <div className="admin-modal-backdrop" onClick={onClose}>
-      <div className="admin-modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className="admin-modal-card" role="dialog" aria-modal="true" aria-label={isEditing ? "Chỉnh sửa khách mời" : "Thêm khách mời"} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header-row">
           <h3>{isEditing ? "Chỉnh Sửa Thông Tin Khách Mời" : "Thêm Khách Mời Mới"}</h3>
           <button className="btn-close-admin-modal" onClick={onClose} aria-label="Đóng">
@@ -124,13 +130,12 @@ export default function GuestModal({ guest, isOpen, onClose, onSave }: GuestModa
               <Users size={14} style={{ display: "inline", marginRight: "6px" }} />
               Nhóm khách mời
             </label>
-            <select value={group} onChange={(e) => setGroup(e.target.value)}>
-              {COMMON_GROUPS.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
+            <input list="guest-groups" aria-label="Nhóm khách mời" value={group} onChange={(e) => setGroup(e.target.value)} />
+            <datalist id="guest-groups">
+              {Array.from(new Set([...COMMON_GROUPS, ...getGuests().map((item) => item.group)])).map((g) => (
+                <option key={g} value={g} />
               ))}
-            </select>
+            </datalist>
           </div>
 
           {/* Loại thiệp mời (Admin chọn: Thiệp Chú Rể hoặc Thiệp Cô Dâu) */}
@@ -152,6 +157,8 @@ export default function GuestModal({ guest, isOpen, onClose, onSave }: GuestModa
               <option value="both">
                 ✨ Cả 2 bên (Hiển thị đầy đủ cả Nhà Trai & Nhà Gái)
               </option>
+              <option value="tiec_than_mat">Chỉ Tiệc Thân Mật</option>
+              <option value="vu_quy">Chỉ Lễ Vu Quy</option>
             </select>
           </div>
 
@@ -181,6 +188,7 @@ export default function GuestModal({ guest, isOpen, onClose, onSave }: GuestModa
             />
           </div>
 
+          {error && <p role="alert" className="login-error-msg">{error}</p>}
           <div className="form-actions-row">
             <button type="button" className="btn-secondary-action" onClick={onClose}>
               Hủy bỏ

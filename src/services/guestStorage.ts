@@ -1,5 +1,7 @@
 import type { Guest, WishItem, AdminStats, GoogleSheetsConfig } from "../types/guestManagement";
 import { weddingData } from "../data/weddingData";
+import { getGuestInvitationUrl } from "../utils/guestList";
+import { escapeCSV, parseCSV } from "../utils/csv";
 
 const STORAGE_KEY_GUESTS = "wedding_guests_v2";
 const STORAGE_KEY_WISHES = "wedding_wishes_v2";
@@ -185,9 +187,10 @@ export function addGuest(data: Omit<Guest, "id" | "createdAt" | "checkin">): Gue
   let code = data.code?.trim() || generateGuestSlug(data.fullName);
 
   // Đảm bảo mã mời là duy nhất
-  const isDuplicate = guests.some((g) => g.code.toLowerCase() === code.toLowerCase());
-  if (isDuplicate) {
-    code = `${code}-${Math.floor(10 + Math.random() * 90)}`;
+  const baseCode = code;
+  let suffix = 2;
+  while (guests.some((g) => g.code.toLowerCase() === code.toLowerCase())) {
+    code = `${baseCode}-${suffix++}`;
   }
 
   const newGuest: Guest = {
@@ -511,33 +514,30 @@ export function exportGuestsToCSV(): string {
     "Link Thiệp Mời Cá Nhân",
   ];
 
-  const baseUrl = typeof window !== "undefined" ? window.location.origin + window.location.pathname : "";
-
   const rows = guests.map((g) => {
-    const inviteEvent =
-      g.invitedTo === "both" ? "Cả hai sự kiện" : g.invitedTo === "tiec_than_mat" ? "Tiệc Thân Mật" : "Lễ Vu Quy";
+    const inviteEvent = g.invitedTo;
     const rsvpThanMat = g.rsvp?.tiecThanMat?.attending || "pending";
     const countThanMat = g.rsvp?.tiecThanMat?.attendeeCount || 0;
     const rsvpVuQuy = g.rsvp?.vuQuy?.attending || "pending";
     const countVuQuy = g.rsvp?.vuQuy?.attendeeCount || 0;
     const checkin = g.checkin?.isCheckedIn ? "Đã check-in" : "Chưa";
-    const link = `${baseUrl}?g=${g.code}`;
+    const link = typeof window !== "undefined" ? getGuestInvitationUrl(g.code) : `?g=${encodeURIComponent(g.code)}`;
 
     return [
-      `"${g.code}"`,
-      `"${g.fullName}"`,
-      `"${g.phone || ""}"`,
-      `"${g.group}"`,
-      `"${inviteEvent}"`,
+      g.code,
+      g.fullName,
+      g.phone || "",
+      g.group,
+      inviteEvent,
       g.expectedCount || 1,
-      `"${rsvpThanMat}"`,
+      rsvpThanMat,
       countThanMat,
-      `"${rsvpVuQuy}"`,
+      rsvpVuQuy,
       countVuQuy,
-      `"${g.rsvp?.generalNote || ""}"`,
-      `"${checkin}"`,
-      `"${link}"`,
-    ].join(",");
+      g.rsvp?.generalNote || "",
+      checkin,
+      link,
+    ].map(escapeCSV).join(",");
   });
 
   return "\uFEFF" + [headers.join(","), ...rows].join("\n");
@@ -545,35 +545,42 @@ export function exportGuestsToCSV(): string {
 
 export function importGuestsFromCSV(csvText: string): number {
   try {
-    const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const lines = parseCSV(csvText);
     if (lines.length <= 1) return 0;
 
     const existing = getGuests();
     let importedCount = 0;
 
     for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      // Regex split CSV có hỗ trợ quotes
-      const values = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(",");
+      const values = lines[i];
       if (!values || values.length < 2) continue;
 
-      const clean = (val: string) => (val ? val.replace(/^"|"$/g, "").trim() : "");
-      const name = clean(values[1] || values[0]);
+      const clean = (val: string) => val?.trim() || "";
+      const name = clean(values[1]);
       if (!name) continue;
 
       const phone = clean(values[2] || "");
       const group = clean(values[3] || "Bạn Bè");
       const eventRaw = clean(values[4] || "").toLowerCase();
-      const count = parseInt(clean(values[5] || "1"), 10) || 1;
+      const count = Math.max(1, parseInt(clean(values[5] || "1"), 10) || 1);
 
       let invitedTo: Guest["invitedTo"] = "both";
-      if (eventRaw.includes("thân mật") || eventRaw.includes("than_mat")) {
+      if (eventRaw === "thiep_chu_re" || eventRaw.includes("chú rể")) {
+        invitedTo = "thiep_chu_re";
+      } else if (eventRaw === "thiep_co_dau" || eventRaw.includes("cô dâu")) {
+        invitedTo = "thiep_co_dau";
+      } else if (eventRaw.includes("thân mật") || eventRaw.includes("than_mat")) {
         invitedTo = "tiec_than_mat";
       } else if (eventRaw.includes("vu quy") || eventRaw.includes("vu_quy")) {
         invitedTo = "vu_quy";
       }
 
-      const code = generateGuestSlug(name);
+      const baseCode = clean(values[0]) || generateGuestSlug(name);
+      let code = baseCode;
+      let suffix = 2;
+      while (existing.some((g) => g.code.toLowerCase() === code.toLowerCase())) {
+        code = `${baseCode}-${suffix++}`;
+      }
       // Kiểm tra trùng
       if (!existing.some((g) => g.fullName.toLowerCase() === name.toLowerCase())) {
         existing.push({
