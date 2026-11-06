@@ -1,0 +1,1124 @@
+import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  Users,
+  UserPlus,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Search,
+  Download,
+  Upload,
+  RefreshCw,
+  LogOut,
+  KeyRound,
+  ExternalLink,
+  Edit2,
+  Trash2,
+  QrCode,
+  MessageSquare,
+  FileSpreadsheet,
+  BarChart3,
+  CheckSquare,
+  Wine,
+  Sparkles,
+  ShieldCheck,
+  Camera,
+  AlertCircle,
+} from "lucide-react";
+
+import type { Guest, WishItem, AdminStats, GoogleSheetsConfig } from "../types/guestManagement";
+import {
+  getGuests,
+  addGuest,
+  updateGuest,
+  deleteGuest,
+  toggleCheckin,
+  calculateAdminStats,
+  getWishes,
+  toggleApproveWish,
+  deleteWish,
+  getSheetConfig,
+  saveSheetConfig,
+  exportGuestsToCSV,
+  importGuestsFromCSV,
+  logoutAdmin,
+  getAdminPin,
+  setAdminPin,
+} from "../services/guestStorage";
+import { syncWithGoogleSheets, GOOGLE_APPS_SCRIPT_TEMPLATE } from "../services/googleSheetsService";
+import GuestModal from "./GuestModal";
+import QRModal from "./QRModal";
+
+interface AdminDashboardProps {
+  onExit: () => void;
+}
+
+type TabType = "overview" | "guests" | "wishes" | "sheets";
+
+export default function AdminDashboard({ onExit }: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<TabType>("overview");
+
+  // State Dữ liệu
+  const [guests, setGuests] = useState<Guest[]>(() => getGuests());
+  const [wishes, setWishes] = useState<WishItem[]>(() => getWishes());
+  const [stats, setStats] = useState<AdminStats>(() => calculateAdminStats());
+  const [sheetConfig, setSheetConfig] = useState<GoogleSheetsConfig>(() => getSheetConfig());
+
+  // Filter & Search State
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState("all");
+  const [selectedEvent, setSelectedEvent] = useState<string>("all");
+  const [selectedRsvp, setSelectedRsvp] = useState<string>("all");
+
+  // Modal State
+  const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
+  const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
+  const [qrModalGuest, setQrModalGuest] = useState<Guest | null>(null);
+
+  // Sync State
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState<{ success?: boolean; text: string } | null>(null);
+  const [copiedScript, setCopiedScript] = useState(false);
+
+  // Scanner State (removed check-in tab, kept for quick-access if needed)
+
+  // PIN Change State
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [currentPinInput, setCurrentPinInput] = useState("");
+  const [newPinInput, setNewPinInput] = useState("");
+  const [pinChangeMsg, setPinChangeMsg] = useState("");
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Cập nhật thống kê khi danh sách khách thay đổi
+  const reloadData = () => {
+    const freshGuests = getGuests();
+    const freshWishes = getWishes();
+    setGuests(freshGuests);
+    setWishes(freshWishes);
+    setStats(calculateAdminStats());
+  };
+
+  useEffect(() => {
+    reloadData();
+  }, []);
+
+  // Danh sách các nhóm khách hiện có để hiển thị trong bộ lọc
+  const availableGroups = useMemo(() => {
+    const set = new Set<string>();
+    guests.forEach((g) => {
+      if (g.group) set.add(g.group);
+    });
+    return Array.from(set);
+  }, [guests]);
+
+  // Lọc danh sách khách mời
+  const filteredGuests = useMemo(() => {
+    return guests.filter((g) => {
+      // Tìm kiếm từ khóa
+      const searchMatch =
+        searchTerm === "" ||
+        g.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        g.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (g.phone && g.phone.includes(searchTerm)) ||
+        g.group.toLowerCase().includes(searchTerm.toLowerCase());
+
+      if (!searchMatch) return false;
+
+      // Lọc nhóm
+      if (selectedGroup !== "all" && g.group !== selectedGroup) return false;
+
+      // Lọc sự kiện
+      if (selectedEvent !== "all" && g.invitedTo !== selectedEvent && g.invitedTo !== "both") {
+        return false;
+      }
+
+      // Lọc RSVP
+      if (selectedRsvp !== "all") {
+        const isAttending =
+          g.rsvp?.tiecThanMat?.attending === "attending" || g.rsvp?.vuQuy?.attending === "attending";
+        const isDeclined =
+          g.rsvp?.tiecThanMat?.attending === "declined" && g.rsvp?.vuQuy?.attending === "declined";
+        const isPending = !isAttending && !isDeclined;
+
+        if (selectedRsvp === "attending" && !isAttending) return false;
+        if (selectedRsvp === "declined" && !isDeclined) return false;
+        if (selectedRsvp === "pending" && !isPending) return false;
+      }
+
+      return true;
+    });
+  }, [guests, searchTerm, selectedGroup, selectedEvent, selectedRsvp]);
+
+  // Lưu hoặc cập nhật khách mời
+  const handleSaveGuest = (guestData: any) => {
+    if (editingGuest) {
+      updateGuest(guestData as Guest);
+    } else {
+      addGuest(guestData);
+    }
+    reloadData();
+    setIsGuestModalOpen(false);
+    setEditingGuest(null);
+  };
+
+  // Xóa khách mời
+  const handleDeleteGuest = (id: string, name: string) => {
+    if (window.confirm(`Bạn có chắc chắn muốn xóa khách mời "${name}" không?`)) {
+      deleteGuest(id);
+      reloadData();
+    }
+  };
+
+  // Xuất file CSV
+  const handleExportCSV = () => {
+    const csvContent = exportGuestsToCSV();
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `danh_sach_khach_moi_long_toi_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Nhập file CSV
+  const handleImportCSVClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      if (text) {
+        const count = importGuestsFromCSV(text);
+        reloadData();
+        alert(`Đã nhập thành công ${count} khách mời mới từ file CSV!`);
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+    e.target.value = "";
+  };
+
+  // Đồng bộ với Google Sheets
+  const handleSyncSheets = async () => {
+    setIsSyncing(true);
+    setSyncStatusMsg(null);
+    const result = await syncWithGoogleSheets(sheetConfig);
+    setIsSyncing(false);
+    setSyncStatusMsg({ success: result.success, text: result.message });
+    if (result.success) {
+      reloadData();
+      setSheetConfig(getSheetConfig());
+    }
+  };
+
+  // Đổi mã PIN quản trị
+  const handleSaveNewPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const curPin = getAdminPin();
+    if (currentPinInput.trim() !== curPin) {
+      setPinChangeMsg("Mã PIN hiện tại không chính xác!");
+      return;
+    }
+    if (newPinInput.trim().length < 4) {
+      setPinChangeMsg("Mã PIN mới phải có ít nhất 4 ký tự!");
+      return;
+    }
+
+    setAdminPin(newPinInput.trim());
+    setPinChangeMsg("Đổi mã PIN thành công!");
+    setTimeout(() => {
+      setIsPinModalOpen(false);
+      setPinChangeMsg("");
+      setCurrentPinInput("");
+      setNewPinInput("");
+    }, 1500);
+  };
+
+  return (
+    <div className="admin-root-wrapper">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept=".csv"
+        style={{ display: "none" }}
+      />
+
+      {/* TOP NAVBAR */}
+      <header className="admin-navbar">
+        <div className="admin-nav-container">
+          <div className="admin-brand">
+            <div className="brand-icon-box">
+              <ShieldCheck size={24} />
+            </div>
+            <div className="admin-brand-info">
+              <h1>HỆ THỐNG QUẢN TRỊ KHÁCH MỜI</h1>
+              <p>Đám cưới Trường Long & Thanh Tới • 2026</p>
+            </div>
+          </div>
+
+          <div className="admin-nav-actions">
+            <button onClick={onExit} className="btn-nav-action" title="Quay lại giao diện thiệp">
+              <ExternalLink size={15} />
+              <span>Xem Thiệp</span>
+            </button>
+
+            <button
+              onClick={() => setIsPinModalOpen(true)}
+              className="btn-nav-action"
+              title="Thay đổi mật khẩu quản trị"
+            >
+              <KeyRound size={15} />
+              <span>Đổi PIN</span>
+            </button>
+
+            <button
+              onClick={() => {
+                logoutAdmin();
+                onExit();
+              }}
+              className="btn-nav-action danger"
+              title="Đăng xuất khỏi trang quản trị"
+            >
+              <LogOut size={15} />
+              <span>Đăng Xuất</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* TABS HEADER */}
+      <nav className="admin-tabs-bar">
+        <div className="admin-tabs-container">
+          <button
+            className={`admin-tab-btn ${activeTab === "overview" ? "active" : ""}`}
+            onClick={() => setActiveTab("overview")}
+          >
+            <BarChart3 size={17} />
+            <span>Tổng Quan & Thống Kê</span>
+          </button>
+
+          <button
+            className={`admin-tab-btn ${activeTab === "guests" ? "active" : ""}`}
+            onClick={() => setActiveTab("guests")}
+          >
+            <Users size={17} />
+            <span>Danh Sách Khách Mời</span>
+            <span className="tab-badge">{stats.totalGuests}</span>
+          </button>
+
+          <button
+            className={`admin-tab-btn ${activeTab === "wishes" ? "active" : ""}`}
+            onClick={() => setActiveTab("wishes")}
+          >
+            <MessageSquare size={17} />
+            <span>Sổ Lời Chúc</span>
+            <span className="tab-badge">{stats.totalWishes}</span>
+          </button>
+
+          <button
+            className={`admin-tab-btn ${activeTab === "sheets" ? "active" : ""}`}
+            onClick={() => setActiveTab("sheets")}
+          >
+            <FileSpreadsheet size={17} />
+            <span>Đồng Bộ Google Sheets</span>
+          </button>
+        </div>
+      </nav>
+
+      {/* MAIN BODY CONTENT */}
+      <main className="admin-main-content">
+        {/* ====================================================================
+            TAB 1: TỔNG QUAN & THỐNG KÊ (OVERVIEW)
+            ==================================================================== */}
+        {activeTab === "overview" && (
+          <div>
+            {/* 4 THẺ THỐNG KÊ CHÍNH */}
+            <div className="stats-cards-grid">
+              {/* Thẻ 1: Tổng khách mời */}
+              <div className="stat-metric-card">
+                <div className="stat-header">
+                  <span className="stat-title">Tổng Khách Mời</span>
+                  <div className="stat-icon-wrapper primary">
+                    <Users size={20} />
+                  </div>
+                </div>
+                <div className="stat-main-number">{stats.totalGuests}</div>
+                <div className="stat-subtext">Dự kiến: {stats.totalExpectedCount} người</div>
+                <div className="stat-sub-breakdown">
+                  <div className="breakdown-item">
+                    <span>Đã phản hồi: </span>
+                    <strong style={{ color: "#12824C" }}>
+                      {stats.tiecThanMat.attendingCount + stats.vuQuy.attendingCount}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Thẻ 2: Tiệc thân mật */}
+              <div className="stat-metric-card">
+                <div className="stat-header">
+                  <span className="stat-title">Tiệc Thân Mật (22.12)</span>
+                  <div className="stat-icon-wrapper burgundy">
+                    <Wine size={20} />
+                  </div>
+                </div>
+                <div className="stat-main-number">{stats.tiecThanMat.totalHeadcount}</div>
+                <div className="stat-subtext">Người xác nhận tham dự</div>
+                <div className="stat-sub-breakdown">
+                  <div className="breakdown-item">
+                    <span className="breakdown-dot green" />
+                    <span>Có: {stats.tiecThanMat.attendingCount}</span>
+                  </div>
+                  <div className="breakdown-item">
+                    <span className="breakdown-dot red" />
+                    <span>Không: {stats.tiecThanMat.declinedCount}</span>
+                  </div>
+                  <div className="breakdown-item">
+                    <span className="breakdown-dot gray" />
+                    <span>Chờ: {stats.tiecThanMat.pendingCount}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Thẻ 3: Lễ vu quy */}
+              <div className="stat-metric-card">
+                <div className="stat-header">
+                  <span className="stat-title">Lễ Vu Quy (14.11)</span>
+                  <div className="stat-icon-wrapper gold">
+                    <Sparkles size={20} />
+                  </div>
+                </div>
+                <div className="stat-main-number">{stats.vuQuy.totalHeadcount}</div>
+                <div className="stat-subtext">Người xác nhận tham dự</div>
+                <div className="stat-sub-breakdown">
+                  <div className="breakdown-item">
+                    <span className="breakdown-dot green" />
+                    <span>Có: {stats.vuQuy.attendingCount}</span>
+                  </div>
+                  <div className="breakdown-item">
+                    <span className="breakdown-dot red" />
+                    <span>Không: {stats.vuQuy.declinedCount}</span>
+                  </div>
+                  <div className="breakdown-item">
+                    <span className="breakdown-dot gray" />
+                    <span>Chờ: {stats.vuQuy.pendingCount}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* PHÍM TẮT HÀNH ĐỘNG NHANH */}
+            <div
+              style={{
+                background: "#FFFFFF",
+                borderRadius: "16px",
+                padding: "24px",
+                border: "1px solid #EBE2E5",
+                marginBottom: "28px",
+              }}
+            >
+              <h3 style={{ margin: "0 0 16px 0", color: "#65001D", fontSize: "16px" }}>
+                Thao Tác Nhanh
+              </h3>
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                <button
+                  className="btn-primary-action"
+                  onClick={() => {
+                    setEditingGuest(null);
+                    setIsGuestModalOpen(true);
+                  }}
+                >
+                  <UserPlus size={16} />
+                  <span>Thêm Khách Mới</span>
+                </button>
+
+                <button className="btn-secondary-action" onClick={handleExportCSV}>
+                  <Download size={16} />
+                  <span>Tải File Excel Khách Mời (CSV)</span>
+                </button>
+
+                <button className="btn-secondary-action" onClick={() => setActiveTab("sheets")}>
+                  <RefreshCw size={16} />
+                  <span>Đồng Bộ Google Sheets</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ====================================================================
+            TAB 2: QUẢN LÝ DANH SÁCH KHÁCH MỜI (GUEST LIST)
+            ==================================================================== */}
+        {activeTab === "guests" && (
+          <div>
+            {/* THANH CÔNG CỤ TÌM KIẾM & BỘ LỌC */}
+            <div className="guest-list-toolbar">
+              <div className="toolbar-search-group">
+                <div className="search-input-box">
+                  <Search size={18} />
+                  <input
+                    type="text"
+                    placeholder="Tìm tên, số điện thoại, mã link hoặc nhóm..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="toolbar-filters">
+                {/* Lọc Nhóm */}
+                <select
+                  className="select-filter"
+                  value={selectedGroup}
+                  onChange={(e) => setSelectedGroup(e.target.value)}
+                >
+                  <option value="all">Tất cả các nhóm</option>
+                  {availableGroups.map((grp) => (
+                    <option key={grp} value={grp}>
+                      {grp}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Lọc Sự Kiện / Loại Thiệp Mời */}
+                <select
+                  className="select-filter"
+                  value={selectedEvent}
+                  onChange={(e) => setSelectedEvent(e.target.value)}
+                >
+                  <option value="all">Tất cả loại thiệp</option>
+                  <option value="thiep_chu_re">🤵 Thiệp Chú Rể (Nhà Trai)</option>
+                  <option value="thiep_co_dau">👰 Thiệp Cô Dâu (Nhà Gái)</option>
+                  <option value="both">✨ Cả hai bên</option>
+                </select>
+
+                {/* Lọc RSVP */}
+                <select
+                  className="select-filter"
+                  value={selectedRsvp}
+                  onChange={(e) => setSelectedRsvp(e.target.value)}
+                >
+                  <option value="all">Tất cả RSVP</option>
+                  <option value="attending">Sẽ tham dự</option>
+                  <option value="declined">Đã từ chối</option>
+                  <option value="pending">Chưa phản hồi</option>
+                </select>
+
+                {/* Lọc Check-in */}
+                <select
+                  className="select-filter"
+                  value={selectedCheckin}
+                  onChange={(e) => setSelectedCheckin(e.target.value)}
+                >
+                  <option value="all">Tất cả Check-in</option>
+                  <option value="checked">Đã check-in</option>
+                  <option value="unchecked">Chưa check-in</option>
+                </select>
+              </div>
+
+              <div className="toolbar-actions">
+                <button
+                  className="btn-primary-action"
+                  onClick={() => {
+                    setEditingGuest(null);
+                    setIsGuestModalOpen(true);
+                  }}
+                >
+                  <UserPlus size={16} />
+                  <span>Thêm Khách</span>
+                </button>
+
+                <button className="btn-secondary-action" onClick={handleExportCSV} title="Xuất CSV">
+                  <Download size={15} />
+                  <span>Xuất Excel</span>
+                </button>
+
+                <button
+                  className="btn-secondary-action"
+                  onClick={handleImportCSVClick}
+                  title="Nhập khách từ file CSV"
+                >
+                  <Upload size={15} />
+                  <span>Nhập CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* BẢNG DỮ LIỆU KHÁCH MỜI */}
+            <div className="admin-table-card">
+              <div className="table-responsive">
+                <table className="admin-data-table">
+                  <thead>
+                    <tr>
+                      <th>Khách Mời</th>
+                      <th>Nhóm</th>
+                      <th>Sự Kiện Mời</th>
+                      <th style={{ textAlign: "center" }}>Dự Kiến</th>
+                      <th>RSVP Tiệc Thân Mật</th>
+                      <th>RSVP Lễ Vu Quy</th>
+                      <th style={{ textAlign: "center" }}>Điểm Danh</th>
+                      <th style={{ textAlign: "center" }}>Link / QR</th>
+                      <th style={{ textAlign: "center" }}>Thao Tác</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredGuests.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} style={{ textAlign: "center", padding: "40px", color: "#8C7B7E" }}>
+                          Không tìm thấy khách mời nào phù hợp với bộ lọc.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredGuests.map((g) => {
+                        const baseUrl =
+                          typeof window !== "undefined"
+                            ? window.location.origin + window.location.pathname
+                            : "";
+                        const guestUrl = `${baseUrl}?g=${g.code}`;
+
+                        return (
+                          <tr key={g.id}>
+                            {/* Khách mời */}
+                            <td>
+                              <div style={{ fontWeight: 600, color: "#1E1719" }}>{g.fullName}</div>
+                              {g.phone && (
+                                <div style={{ fontSize: "12px", color: "#8C7B7E" }}>{g.phone}</div>
+                              )}
+                            </td>
+
+                            {/* Nhóm */}
+                            <td>
+                              <span style={{ fontSize: "12.5px", color: "#554448" }}>{g.group}</span>
+                            </td>
+
+                            {/* Sự kiện mời */}
+                            <td>
+                              {(g.invitedTo === "thiep_chu_re" || g.invitedTo === "tiec_than_mat") && (
+                                <span className="event-badge than_mat" style={{ background: "#FDF0F3", color: "#65001D", border: "1px solid #E6BDC6" }}>
+                                  🤵 Thiệp Chú Rể
+                                </span>
+                              )}
+                              {(g.invitedTo === "thiep_co_dau" || g.invitedTo === "vu_quy") && (
+                                <span className="event-badge vu_quy" style={{ background: "#FDF4F6", color: "#B8506C", border: "1px solid #EAC8D2" }}>
+                                  👰 Thiệp Cô Dâu
+                                </span>
+                              )}
+                              {g.invitedTo === "both" && (
+                                <span className="event-badge both">
+                                  ✨ Cả hai bên
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Dự kiến */}
+                            <td style={{ textAlign: "center", fontWeight: 600 }}>
+                              {g.expectedCount || 1}
+                            </td>
+
+                            {/* RSVP Tiệc Thân Mật */}
+                            <td>
+                              {g.invitedTo === "vu_quy" ? (
+                                <span style={{ color: "#B5A4A7", fontSize: "12px" }}>Không mời</span>
+                              ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                  {g.rsvp?.tiecThanMat?.attending === "attending" && (
+                                    <span className="rsvp-badge attending">
+                                      <CheckCircle2 size={12} />
+                                      Tham dự ({g.rsvp.tiecThanMat.attendeeCount} người)
+                                    </span>
+                                  )}
+                                  {g.rsvp?.tiecThanMat?.attending === "declined" && (
+                                    <span className="rsvp-badge declined">
+                                      <XCircle size={12} />
+                                      Bận không tới
+                                    </span>
+                                  )}
+                                  {(!g.rsvp?.tiecThanMat ||
+                                    g.rsvp?.tiecThanMat?.attending === "pending") && (
+                                    <span className="rsvp-badge pending">
+                                      <Clock size={12} />
+                                      Chưa phản hồi
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* RSVP Lễ Vu Quy */}
+                            <td>
+                              {g.invitedTo === "tiec_than_mat" ? (
+                                <span style={{ color: "#B5A4A7", fontSize: "12px" }}>Không mời</span>
+                              ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                  {g.rsvp?.vuQuy?.attending === "attending" && (
+                                    <span className="rsvp-badge attending">
+                                      <CheckCircle2 size={12} />
+                                      Tham dự ({g.rsvp.vuQuy.attendeeCount} người)
+                                    </span>
+                                  )}
+                                  {g.rsvp?.vuQuy?.attending === "declined" && (
+                                    <span className="rsvp-badge declined">
+                                      <XCircle size={12} />
+                                      Bận không tới
+                                    </span>
+                                  )}
+                                  {(!g.rsvp?.vuQuy || g.rsvp?.vuQuy?.attending === "pending") && (
+                                    <span className="rsvp-badge pending">
+                                      <Clock size={12} />
+                                      Chưa phản hồi
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Check-in */}
+                            <td style={{ textAlign: "center" }}>
+                              <button
+                                className={`btn-checkin-toggle ${
+                                  g.checkin?.isCheckedIn ? "checked" : "unchecked"
+                                }`}
+                                onClick={() => handleToggleCheckin(g)}
+                                title={g.checkin?.isCheckedIn ? "Hủy điểm danh" : "Điểm danh khách này"}
+                              >
+                                {g.checkin?.isCheckedIn ? (
+                                  <>
+                                    <CheckCircle2 size={14} />
+                                    <span>Đã tới</span>
+                                  </>
+                                ) : (
+                                  <span>Điểm danh</span>
+                                )}
+                              </button>
+                            </td>
+
+                            {/* Link / QR Code */}
+                            <td style={{ textAlign: "center" }}>
+                              <div style={{ display: "inline-flex", gap: "6px" }}>
+                                <button
+                                  className="btn-icon-action"
+                                  onClick={() => setQrModalGuest(g)}
+                                  title="Mở mã QR & Link cá nhân"
+                                >
+                                  <QrCode size={16} />
+                                </button>
+
+                                <a
+                                  href={guestUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn-icon-action"
+                                  title="Xem trước thiệp mời của khách này"
+                                >
+                                  <ExternalLink size={15} />
+                                </a>
+                              </div>
+                            </td>
+
+                            {/* Thao tác */}
+                            <td style={{ textAlign: "center" }}>
+                              <div style={{ display: "inline-flex", gap: "6px" }}>
+                                <button
+                                  className="btn-icon-action"
+                                  onClick={() => {
+                                    setEditingGuest(g);
+                                    setIsGuestModalOpen(true);
+                                  }}
+                                  title="Chỉnh sửa thông tin"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+
+                                <button
+                                  className="btn-icon-action danger"
+                                  onClick={() => handleDeleteGuest(g.id, g.fullName)}
+                                  title="Xóa khách này"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ====================================================================
+            TAB 3: ĐIỂM DANH CHECK-IN (SCANNER & QUICK CHECKIN)
+            ==================================================================== */}
+        {activeTab === "scanner" && (
+          <div style={{ maxWidth: "720px", margin: "0 auto" }}>
+            <div
+              style={{
+                background: "#FFFFFF",
+                borderRadius: "16px",
+                padding: "32px",
+                border: "1px solid #EBE2E5",
+                boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+                textAlign: "center",
+              }}
+            >
+              <div
+                style={{
+                  width: "60px",
+                  height: "60px",
+                  background: "#FFF0F3",
+                  color: "#65001D",
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 16px auto",
+                }}
+              >
+                <Camera size={30} />
+              </div>
+
+              <h2
+                style={{
+                  fontFamily: "'Times New Roman', Georgia, serif",
+                  fontSize: "24px",
+                  color: "#65001D",
+                  margin: "0 0 8px 0",
+                }}
+              >
+                Bàn Điểm Danh Lễ Tân
+              </h2>
+              <p style={{ color: "#6C5B5D", fontSize: "14px", margin: "0 0 28px 0" }}>
+                Nhập nhanh tên khách, số điện thoại hoặc mã thiệp để điểm danh khách khi tới dự tiệc:
+              </p>
+
+              {/* Form Điểm danh nhanh */}
+              <form onSubmit={handleQuickCheckinSubmit} style={{ maxWidth: "480px", margin: "0 auto 24px auto" }}>
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <input
+                    type="text"
+                    placeholder="Ví dụ: tuan-diu, Tuấn Dịu, 0912..."
+                    value={quickCodeInput}
+                    onChange={(e) => setQuickCodeInput(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: "14px 16px",
+                      border: "2px solid #65001D",
+                      borderRadius: "12px",
+                      fontSize: "16px",
+                      outline: "none",
+                    }}
+                    autoFocus
+                  />
+                  <button type="submit" className="btn-primary-action" style={{ padding: "14px 24px" }}>
+                    <CheckSquare size={18} />
+                    <span>Check-in</span>
+                  </button>
+                </div>
+              </form>
+
+              {checkinMessage && (
+                <div
+                  style={{
+                    padding: "12px 18px",
+                    borderRadius: "10px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    marginBottom: "24px",
+                    background: checkinMessage.success ? "#EBF8F2" : "#FFF1F3",
+                    color: checkinMessage.success ? "#12824C" : "#C02640",
+                    border: `1px solid ${checkinMessage.success ? "#B8EBD2" : "#F8D4DB"}`,
+                  }}
+                >
+                  {checkinMessage.text}
+                </div>
+              )}
+
+              {/* Danh sách khách vừa mới check-in */}
+              <div style={{ textAlign: "left", marginTop: "32px", borderTop: "1px solid #F0E6E8", paddingTop: "24px" }}>
+                <h4 style={{ fontSize: "15px", color: "#65001D", margin: "0 0 14px 0" }}>
+                  Khách Đã Điểm Danh Gần Đây ({stats.checkedIn.total} khách):
+                </h4>
+                <div style={{ maxHeight: "300px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {guests
+                    .filter((g) => g.checkin?.isCheckedIn)
+                    .map((g) => (
+                      <div
+                        key={g.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "10px 14px",
+                          background: "#FAF5F6",
+                          borderRadius: "10px",
+                          fontSize: "13.5px",
+                        }}
+                      >
+                        <div>
+                          <strong>{g.fullName}</strong>
+                          <span style={{ color: "#7A696C", marginLeft: "8px" }}>({g.group})</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <span style={{ color: "#12824C", fontWeight: 600 }}>
+                            {g.checkin?.actualCount || 1} người
+                          </span>
+                          <button
+                            onClick={() => handleToggleCheckin(g)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#C02640",
+                              fontSize: "12px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Hủy
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ====================================================================
+            TAB 4: SỔ LỜI CHÚC (WISHES MANAGER)
+            ==================================================================== */}
+        {activeTab === "wishes" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h3 style={{ margin: 0, color: "#65001D", fontFamily: "'Times New Roman', Georgia, serif", fontSize: "20px" }}>
+                Lời Chúc Phúc Từ Quan Khách ({wishes.length})
+              </h3>
+            </div>
+
+            <div className="wishes-grid">
+              {wishes.map((w) => (
+                <div key={w.id} className="admin-wish-card">
+                  <div>
+                    <div className="wish-card-top">
+                      <div className="wish-sender-info">
+                        <h4>{w.name}</h4>
+                        <span className="wish-relation-badge">{w.relationship}</span>
+                      </div>
+                      <span style={{ fontSize: "11px", color: "#8C7B7E" }}>{w.createdAt}</span>
+                    </div>
+                    <p className="wish-card-text">“{w.message}”</p>
+                  </div>
+
+                  <div className="wish-card-actions">
+                    <button
+                      className="btn-secondary-action"
+                      style={{ padding: "6px 12px", fontSize: "12px" }}
+                      onClick={() => {
+                        toggleApproveWish(w.id);
+                        reloadData();
+                      }}
+                    >
+                      {w.isApproved ? (
+                        <>
+                          <CheckCircle2 size={13} color="#12824C" />
+                          <span>Đang Hiển Thị</span>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle size={13} color="#8C7B7E" />
+                          <span>Đang Ẩn</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      className="btn-icon-action danger"
+                      onClick={() => {
+                        if (window.confirm("Xóa lời chúc này?")) {
+                          deleteWish(w.id);
+                          reloadData();
+                        }
+                      }}
+                      title="Xóa lời chúc này"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ====================================================================
+            TAB 5: ĐỒNG BỘ GOOGLE SHEETS (SHEETS SYNC)
+            ==================================================================== */}
+        {activeTab === "sheets" && (
+          <div className="sheets-sync-card">
+            <h3 style={{ fontFamily: "'Times New Roman', Georgia, serif", fontSize: "22px", color: "#65001D", margin: "0 0 10px 0" }}>
+              Đồng Bộ Danh Sách Khách & Lời Chúc Với Google Sheets
+            </h3>
+            <p style={{ color: "#6C5B5D", fontSize: "14px", lineHeight: "1.6", margin: "0 0 24px 0" }}>
+              Hệ thống kết nối trực tiếp với bảng tính Google Spreadsheet cá nhân của bạn thông qua Google Apps Script Web App an toàn. Bạn có thể mở Google Sheets trên điện thoại hoặc máy tính để quản lý khách mọi lúc mọi nơi.
+            </p>
+
+            {syncStatusMsg && (
+              <div className={`sync-status-banner ${syncStatusMsg.success ? "success" : "warning"}`}>
+                {syncStatusMsg.success ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+                <span>{syncStatusMsg.text}</span>
+              </div>
+            )}
+
+            {/* Cấu hình URL và Secret Token */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "24px" }}>
+              <div className="form-field-group">
+                <label>URL Google Apps Script Web App (Kết thúc bằng /exec):</label>
+                <input
+                  type="url"
+                  placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                  value={sheetConfig.webAppUrl}
+                  onChange={(e) => setSheetConfig({ ...sheetConfig, webAppUrl: e.target.value })}
+                />
+              </div>
+
+              <div className="form-field-group">
+                <label>Mã Token Bảo Mật (Secret Token):</label>
+                <input
+                  type="text"
+                  value={sheetConfig.secretToken}
+                  onChange={(e) => setSheetConfig({ ...sheetConfig, secretToken: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                <button
+                  className="btn-primary-action"
+                  onClick={() => {
+                    saveSheetConfig(sheetConfig);
+                    handleSyncSheets();
+                  }}
+                  disabled={isSyncing}
+                >
+                  <RefreshCw size={16} className={isSyncing ? "spin" : ""} />
+                  <span>{isSyncing ? "Đang Đồng Bộ..." : "Lưu & Đồng Bộ Ngay"}</span>
+                </button>
+
+                {sheetConfig.lastSyncedAt && (
+                  <span style={{ fontSize: "12px", color: "#8C7B7E" }}>
+                    Lần cuối: {sheetConfig.lastSyncedAt}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* HƯỚNG DẪN CÀI ĐẶT 2 PHÚT & MÃ NGUỒN APPS SCRIPT */}
+            <div style={{ borderTop: "1px solid #EBE2E5", paddingTop: "24px" }}>
+              <h4 style={{ color: "#65001D", margin: "0 0 12px 0" }}>
+                Hướng Dẫn Cài Đặt Google Apps Script Trong 2 Phút:
+              </h4>
+              <ol style={{ paddingLeft: "20px", color: "#4A3A3D", fontSize: "13.5px", lineHeight: "1.7", margin: "0 0 16px 0" }}>
+                <li>Mở một Google Sheet mới trên trình duyệt của bạn (đặt tên ví dụ: <em>Thiệp Cưới Long & Tới</em>).</li>
+                <li>Vào menu: <strong>Tiện ích mở rộng (Extensions)</strong> &gt; <strong>Apps Script</strong>.</li>
+                <li>Xóa toàn bộ code mặc định trong file, sau đó bấm nút <strong>Sao Chép Toàn Bộ Mã Script</strong> bên dưới và dán vào.</li>
+                <li>Bấm <strong>Triển khai (Deploy)</strong> &gt; <strong>Tùy chọn triển khai mới (New deployment)</strong> &gt; Chọn loại <strong>Ứng dụng web (Web app)</strong>.</li>
+                <li>Mục "Ai có quyền truy cập" (Who has access): Chọn <strong>Bất kỳ ai (Anyone)</strong> &gt; Bấm <strong>Triển khai</strong>.</li>
+                <li>Copy đường link Web App dán vào ô URL bên trên và bấm <strong>Lưu & Đồng Bộ Ngay</strong>!</li>
+              </ol>
+
+              <div className="script-code-box">
+                <button
+                  className="btn-copy-script"
+                  onClick={() => {
+                    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
+                    setCopiedScript(true);
+                    setTimeout(() => setCopiedScript(false), 2500);
+                  }}
+                >
+                  {copiedScript ? "Đã Sao Chép!" : "Sao Chép Toàn Bộ Mã Script"}
+                </button>
+                <pre>{GOOGLE_APPS_SCRIPT_TEMPLATE}</pre>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* MODAL THÊM / SỬA KHÁCH MỜI */}
+      <GuestModal
+        guest={editingGuest}
+        isOpen={isGuestModalOpen}
+        onClose={() => {
+          setIsGuestModalOpen(false);
+          setEditingGuest(null);
+        }}
+        onSave={handleSaveGuest}
+      />
+
+      {/* MODAL XEM MÃ QR & LINK MỜI */}
+      <QRModal
+        guest={qrModalGuest}
+        isOpen={!!qrModalGuest}
+        onClose={() => setQrModalGuest(null)}
+      />
+
+      {/* MODAL ĐỔI MÃ PIN QUẢN TRỊ */}
+      {isPinModalOpen && (
+        <div className="admin-modal-backdrop" onClick={() => setIsPinModalOpen(false)}>
+          <div className="admin-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "380px" }}>
+            <h3 style={{ margin: "0 0 16px 0", color: "#65001D", fontFamily: "'Times New Roman', Georgia, serif" }}>
+              Thay Đổi Mã PIN Quản Trị
+            </h3>
+            <form onSubmit={handleSaveNewPin}>
+              <div className="form-field-group">
+                <label>Mã PIN hiện tại:</label>
+                <input
+                  type="password"
+                  placeholder="Nhập PIN cũ"
+                  value={currentPinInput}
+                  onChange={(e) => setCurrentPinInput(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-field-group">
+                <label>Mã PIN mới:</label>
+                <input
+                  type="password"
+                  placeholder="Nhập PIN mới (ít nhất 4 số)"
+                  value={newPinInput}
+                  onChange={(e) => setNewPinInput(e.target.value)}
+                  required
+                />
+              </div>
+
+              {pinChangeMsg && (
+                <div style={{ fontSize: "13px", color: pinChangeMsg.includes("thành công") ? "#12824C" : "#C02640", marginBottom: "12px" }}>
+                  {pinChangeMsg}
+                </div>
+              )}
+
+              <div className="form-actions-row">
+                <button type="button" className="btn-secondary-action" onClick={() => setIsPinModalOpen(false)}>
+                  Hủy
+                </button>
+                <button type="submit" className="btn-primary-action">
+                  Lưu Mã PIN
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
