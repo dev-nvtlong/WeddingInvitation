@@ -18,11 +18,9 @@ import {
   MessageSquare,
   FileSpreadsheet,
   BarChart3,
-  CheckSquare,
   Wine,
   Sparkles,
   ShieldCheck,
-  Camera,
   AlertCircle,
 } from "lucide-react";
 
@@ -48,6 +46,7 @@ import {
 import { syncWithGoogleSheets, GOOGLE_APPS_SCRIPT_TEMPLATE } from "../services/googleSheetsService";
 import GuestModal from "./GuestModal";
 import QRModal from "./QRModal";
+import { getGuestInvitationUrl, getGuestRSVPStatus, normalizeGuestSearch } from "../utils/guestList";
 
 interface AdminDashboardProps {
   onExit: () => void;
@@ -56,7 +55,7 @@ interface AdminDashboardProps {
 type TabType = "overview" | "guests" | "wishes" | "sheets";
 
 export default function AdminDashboard({ onExit }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
+  const [activeTab, setActiveTab] = useState<TabType>("guests");
 
   // State Dữ liệu
   const [guests, setGuests] = useState<Guest[]>(() => getGuests());
@@ -69,6 +68,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
   const [selectedGroup, setSelectedGroup] = useState("all");
   const [selectedEvent, setSelectedEvent] = useState<string>("all");
   const [selectedRsvp, setSelectedRsvp] = useState<string>("all");
+  const [selectedCheckin, setSelectedCheckin] = useState("all");
 
   // Modal State
   const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
@@ -79,8 +79,6 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState<{ success?: boolean; text: string } | null>(null);
   const [copiedScript, setCopiedScript] = useState(false);
-
-  // Scanner State (removed check-in tab, kept for quick-access if needed)
 
   // PIN Change State
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
@@ -114,14 +112,13 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
 
   // Lọc danh sách khách mời
   const filteredGuests = useMemo(() => {
+    const query = normalizeGuestSearch(searchTerm);
     return guests.filter((g) => {
       // Tìm kiếm từ khóa
       const searchMatch =
-        searchTerm === "" ||
-        g.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        g.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (g.phone && g.phone.includes(searchTerm)) ||
-        g.group.toLowerCase().includes(searchTerm.toLowerCase());
+        [g.fullName, g.code, g.phone || "", g.group].some((value) =>
+          normalizeGuestSearch(value).includes(query)
+        );
 
       if (!searchMatch) return false;
 
@@ -129,26 +126,33 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
       if (selectedGroup !== "all" && g.group !== selectedGroup) return false;
 
       // Lọc sự kiện
-      if (selectedEvent !== "all" && g.invitedTo !== selectedEvent && g.invitedTo !== "both") {
+      const invitationType = g.invitedTo === "tiec_than_mat" ? "thiep_chu_re"
+        : g.invitedTo === "vu_quy" ? "thiep_co_dau" : g.invitedTo;
+      if (selectedEvent !== "all" && invitationType !== selectedEvent && invitationType !== "both") {
         return false;
       }
 
       // Lọc RSVP
-      if (selectedRsvp !== "all") {
-        const isAttending =
-          g.rsvp?.tiecThanMat?.attending === "attending" || g.rsvp?.vuQuy?.attending === "attending";
-        const isDeclined =
-          g.rsvp?.tiecThanMat?.attending === "declined" && g.rsvp?.vuQuy?.attending === "declined";
-        const isPending = !isAttending && !isDeclined;
-
-        if (selectedRsvp === "attending" && !isAttending) return false;
-        if (selectedRsvp === "declined" && !isDeclined) return false;
-        if (selectedRsvp === "pending" && !isPending) return false;
-      }
+      if (selectedRsvp !== "all" && getGuestRSVPStatus(g) !== selectedRsvp) return false;
+      if (selectedCheckin === "checked" && !g.checkin?.isCheckedIn) return false;
+      if (selectedCheckin === "unchecked" && g.checkin?.isCheckedIn) return false;
 
       return true;
     });
-  }, [guests, searchTerm, selectedGroup, selectedEvent, selectedRsvp]);
+  }, [guests, searchTerm, selectedGroup, selectedEvent, selectedRsvp, selectedCheckin]);
+
+  const resetFilters = () => {
+    setSearchTerm("");
+    setSelectedGroup("all");
+    setSelectedEvent("all");
+    setSelectedRsvp("all");
+    setSelectedCheckin("all");
+  };
+
+  const handleToggleCheckin = (guest: Guest) => {
+    toggleCheckin(guest.id, !guest.checkin?.isCheckedIn);
+    reloadData();
+  };
 
   // Lưu hoặc cập nhật khách mời
   const handleSaveGuest = (guestData: any) => {
@@ -156,8 +160,10 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
       updateGuest(guestData as Guest);
     } else {
       addGuest(guestData);
+      resetFilters();
     }
     reloadData();
+    setActiveTab("guests");
     setIsGuestModalOpen(false);
     setEditingGuest(null);
   };
@@ -466,6 +472,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                   <Search size={18} />
                   <input
                     type="text"
+                    aria-label="Tìm khách mời"
                     placeholder="Tìm tên, số điện thoại, mã link hoặc nhóm..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -477,6 +484,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                 {/* Lọc Nhóm */}
                 <select
                   className="select-filter"
+                  aria-label="Lọc theo nhóm"
                   value={selectedGroup}
                   onChange={(e) => setSelectedGroup(e.target.value)}
                 >
@@ -491,6 +499,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                 {/* Lọc Sự Kiện / Loại Thiệp Mời */}
                 <select
                   className="select-filter"
+                  aria-label="Lọc theo loại thiệp"
                   value={selectedEvent}
                   onChange={(e) => setSelectedEvent(e.target.value)}
                 >
@@ -503,6 +512,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                 {/* Lọc RSVP */}
                 <select
                   className="select-filter"
+                  aria-label="Lọc theo RSVP"
                   value={selectedRsvp}
                   onChange={(e) => setSelectedRsvp(e.target.value)}
                 >
@@ -515,6 +525,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                 {/* Lọc Check-in */}
                 <select
                   className="select-filter"
+                  aria-label="Lọc theo điểm danh"
                   value={selectedCheckin}
                   onChange={(e) => setSelectedCheckin(e.target.value)}
                 >
@@ -554,6 +565,10 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
 
             {/* BẢNG DỮ LIỆU KHÁCH MỜI */}
             <div className="admin-table-card">
+              <div className="guest-list-summary">
+                <span role="status">Hiển thị {filteredGuests.length} / {guests.length} khách mời</span>
+                <button className="btn-secondary-action" onClick={resetFilters}>Xóa bộ lọc</button>
+              </div>
               <div className="table-responsive">
                 <table className="admin-data-table">
                   <thead>
@@ -573,16 +588,14 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                     {filteredGuests.length === 0 ? (
                       <tr>
                         <td colSpan={9} style={{ textAlign: "center", padding: "40px", color: "#8C7B7E" }}>
-                          Không tìm thấy khách mời nào phù hợp với bộ lọc.
+                          {guests.length === 0
+                            ? "Chưa có khách mời. Chọn Thêm Khách hoặc Nhập CSV để tạo danh sách."
+                            : "Không tìm thấy khách mời nào phù hợp với bộ lọc."}
                         </td>
                       </tr>
                     ) : (
                       filteredGuests.map((g) => {
-                        const baseUrl =
-                          typeof window !== "undefined"
-                            ? window.location.origin + window.location.pathname
-                            : "";
-                        const guestUrl = `${baseUrl}?g=${g.code}`;
+                        const guestUrl = getGuestInvitationUrl(g.code);
 
                         return (
                           <tr key={g.id}>
@@ -654,7 +667,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
 
                             {/* RSVP Lễ Vu Quy */}
                             <td>
-                              {g.invitedTo === "tiec_than_mat" ? (
+                              {(g.invitedTo === "tiec_than_mat" || g.invitedTo === "thiep_chu_re") ? (
                                 <span style={{ color: "#B5A4A7", fontSize: "12px" }}>Không mời</span>
                               ) : (
                                 <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
@@ -752,143 +765,6 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                     )}
                   </tbody>
                 </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ====================================================================
-            TAB 3: ĐIỂM DANH CHECK-IN (SCANNER & QUICK CHECKIN)
-            ==================================================================== */}
-        {activeTab === "scanner" && (
-          <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-            <div
-              style={{
-                background: "#FFFFFF",
-                borderRadius: "16px",
-                padding: "32px",
-                border: "1px solid #EBE2E5",
-                boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
-                textAlign: "center",
-              }}
-            >
-              <div
-                style={{
-                  width: "60px",
-                  height: "60px",
-                  background: "#FFF0F3",
-                  color: "#65001D",
-                  borderRadius: "50%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  margin: "0 auto 16px auto",
-                }}
-              >
-                <Camera size={30} />
-              </div>
-
-              <h2
-                style={{
-                  fontFamily: "'Times New Roman', Georgia, serif",
-                  fontSize: "24px",
-                  color: "#65001D",
-                  margin: "0 0 8px 0",
-                }}
-              >
-                Bàn Điểm Danh Lễ Tân
-              </h2>
-              <p style={{ color: "#6C5B5D", fontSize: "14px", margin: "0 0 28px 0" }}>
-                Nhập nhanh tên khách, số điện thoại hoặc mã thiệp để điểm danh khách khi tới dự tiệc:
-              </p>
-
-              {/* Form Điểm danh nhanh */}
-              <form onSubmit={handleQuickCheckinSubmit} style={{ maxWidth: "480px", margin: "0 auto 24px auto" }}>
-                <div style={{ display: "flex", gap: "10px" }}>
-                  <input
-                    type="text"
-                    placeholder="Ví dụ: tuan-diu, Tuấn Dịu, 0912..."
-                    value={quickCodeInput}
-                    onChange={(e) => setQuickCodeInput(e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: "14px 16px",
-                      border: "2px solid #65001D",
-                      borderRadius: "12px",
-                      fontSize: "16px",
-                      outline: "none",
-                    }}
-                    autoFocus
-                  />
-                  <button type="submit" className="btn-primary-action" style={{ padding: "14px 24px" }}>
-                    <CheckSquare size={18} />
-                    <span>Check-in</span>
-                  </button>
-                </div>
-              </form>
-
-              {checkinMessage && (
-                <div
-                  style={{
-                    padding: "12px 18px",
-                    borderRadius: "10px",
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    marginBottom: "24px",
-                    background: checkinMessage.success ? "#EBF8F2" : "#FFF1F3",
-                    color: checkinMessage.success ? "#12824C" : "#C02640",
-                    border: `1px solid ${checkinMessage.success ? "#B8EBD2" : "#F8D4DB"}`,
-                  }}
-                >
-                  {checkinMessage.text}
-                </div>
-              )}
-
-              {/* Danh sách khách vừa mới check-in */}
-              <div style={{ textAlign: "left", marginTop: "32px", borderTop: "1px solid #F0E6E8", paddingTop: "24px" }}>
-                <h4 style={{ fontSize: "15px", color: "#65001D", margin: "0 0 14px 0" }}>
-                  Khách Đã Điểm Danh Gần Đây ({stats.checkedIn.total} khách):
-                </h4>
-                <div style={{ maxHeight: "300px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {guests
-                    .filter((g) => g.checkin?.isCheckedIn)
-                    .map((g) => (
-                      <div
-                        key={g.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: "10px 14px",
-                          background: "#FAF5F6",
-                          borderRadius: "10px",
-                          fontSize: "13.5px",
-                        }}
-                      >
-                        <div>
-                          <strong>{g.fullName}</strong>
-                          <span style={{ color: "#7A696C", marginLeft: "8px" }}>({g.group})</span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                          <span style={{ color: "#12824C", fontWeight: 600 }}>
-                            {g.checkin?.actualCount || 1} người
-                          </span>
-                          <button
-                            onClick={() => handleToggleCheckin(g)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "#C02640",
-                              fontSize: "12px",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Hủy
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
               </div>
             </div>
           </div>
@@ -1054,7 +930,8 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
       </main>
 
       {/* MODAL THÊM / SỬA KHÁCH MỜI */}
-      <GuestModal
+      {isGuestModalOpen && <GuestModal
+        key={editingGuest?.id || "new"}
         guest={editingGuest}
         isOpen={isGuestModalOpen}
         onClose={() => {
@@ -1062,7 +939,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
           setEditingGuest(null);
         }}
         onSave={handleSaveGuest}
-      />
+      />}
 
       {/* MODAL XEM MÃ QR & LINK MỜI */}
       <QRModal

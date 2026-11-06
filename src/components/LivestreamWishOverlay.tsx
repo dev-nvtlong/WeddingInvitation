@@ -14,6 +14,7 @@ import {
 import type { Guest, WishItem } from "../types/guestManagement";
 import { getWishes, addWish } from "../services/guestStorage";
 import { weddingData } from "../data/weddingData";
+import WishModal from "./WishModal";
 
 interface LivestreamWishOverlayProps {
   currentGuest?: Guest;
@@ -486,105 +487,94 @@ export default function LivestreamWishOverlay({
       {/* ====================================================================
           MODAL GỬI LỜI CHÚC (HỘP THOẠI CÓ GỢI Ý CHUẨN)
           ==================================================================== */}
-      <AnimatePresence>
-        {isWishModalOpen && (
-          <motion.div
-            className="wish-modal-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsWishModalOpen(false)}
-          >
-            <motion.div
-              className="wish-modal-sheet"
-              initial={{ scale: 0.92, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.92, opacity: 0, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
+      <WishModal isOpen={isWishModalOpen} onClose={() => setIsWishModalOpen(false)}>
+        <motion.div
+          className="wish-modal-sheet"
+          initial={{ scale: 0.92, opacity: 0, y: 20 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.92, opacity: 0, y: 20 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="wish-modal-header">
+            <div className="modal-title-wrap">
+              <Sparkles size={18} className="icon-sparkle" />
+              <h3>Gửi Lời Chúc Phúc Đến Cặp Đôi</h3>
+            </div>
+            <button
+              className="btn-close-wish-modal"
+              onClick={() => setIsWishModalOpen(false)}
+              aria-label="Đóng"
             >
-              <div className="wish-modal-header">
-                <div className="modal-title-wrap">
-                  <Sparkles size={18} className="icon-sparkle" />
-                  <h3>Gửi Lời Chúc Phúc Đến Cặp Đôi</h3>
-                </div>
-                <button
-                  className="btn-close-wish-modal"
-                  onClick={() => setIsWishModalOpen(false)}
-                  aria-label="Đóng"
-                >
-                  <X size={20} />
-                </button>
+              <X size={20} />
+            </button>
+          </div>
+
+          {showToastSuccess ? (
+            <div className="wish-sent-success-box">
+              <Check size={36} className="icon-check" />
+              <h4>Lời Chúc Đã Lên Sóng Trực Tiếp!</h4>
+              <p>Cảm ơn bạn đã gửi những lời yêu thương đến Trường Long & Thanh Tới.</p>
+            </div>
+          ) : (
+            <form onSubmit={handleSendWishSubmit}>
+              {/* Tên người gửi */}
+              <div className="wish-input-field">
+                <label>Tên của bạn *</label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Anh Huy, Chị Chanh, Bạn Chính..."
+                  value={senderName}
+                  onChange={(e) => setSenderName(e.target.value)}
+                  required
+                />
               </div>
 
-              {showToastSuccess ? (
-                <div className="wish-sent-success-box">
-                  <Check size={36} className="icon-check" />
-                  <h4>Lời Chúc Đã Lên Sóng Trực Tiếp!</h4>
-                  <p>Cảm ơn bạn đã gửi những lời yêu thương đến Trường Long & Thanh Tới.</p>
-                </div>
-              ) : (
-                <form onSubmit={handleSendWishSubmit}>
-                  {/* Tên người gửi */}
-                  <div className="wish-input-field">
-                    <label>Tên của bạn *</label>
-                    <input
-                      type="text"
-                      placeholder="Ví dụ: Anh Huy, Chị Chanh, Bạn Chính..."
-                      value={senderName}
-                      onChange={(e) => setSenderName(e.target.value)}
-                      required
-                      autoFocus
-                    />
-                  </div>
+              {/* Lời chúc */}
+              <div className="wish-input-field">
+                <label>Lời chúc của bạn *</label>
+                <textarea
+                  rows={3}
+                  placeholder="Nhập lời chúc ngọt ngào của bạn tại đây hoặc chọn gợi ý bên dưới..."
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  required
+                />
+              </div>
 
-                  {/* Lời chúc */}
-                  <div className="wish-input-field">
-                    <label>Lời chúc của bạn *</label>
-                    <textarea
-                      rows={3}
-                      placeholder="Nhập lời chúc ngọt ngào của bạn tại đây hoặc chọn gợi ý bên dưới..."
-                      value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  {/* 7 GỢI Ý LỜI CHÚC NHANH (QUICK SUGGESTIONS) */}
-                  <div className="suggestions-container">
-                    <span className="suggestions-label">
-                      <Smile size={13} /> Gợi ý lời chúc ý nghĩa (chạm để chọn):
-                    </span>
-                    <div className="suggestions-pills-list">
-                      {QUICK_SUGGESTIONS.map((sug, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          className="suggestion-pill-btn"
-                          onClick={() => handleSelectSuggestion(sug)}
-                        >
-                          {sug}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Nút gửi */}
-                  <div className="wish-modal-actions">
+              {/* 7 GỢI Ý LỜI CHÚC NHANH (QUICK SUGGESTIONS) */}
+              <div className="suggestions-container">
+                <span className="suggestions-label">
+                  <Smile size={13} /> Gợi ý lời chúc ý nghĩa (chạm để chọn):
+                </span>
+                <div className="suggestions-pills-list">
+                  {QUICK_SUGGESTIONS.map((sug, idx) => (
                     <button
-                      type="submit"
-                      className="btn-submit-livestream-wish"
-                      disabled={isSubmitting || !senderName.trim() || !messageText.trim()}
+                      key={idx}
+                      type="button"
+                      className="suggestion-pill-btn"
+                      onClick={() => handleSelectSuggestion(sug)}
                     >
-                      <Send size={16} />
-                      <span>{isSubmitting ? "Đang Gửi..." : "Gửi Lên Livestream Ngay"}</span>
+                      {sug}
                     </button>
-                  </div>
-                </form>
-              )}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nút gửi */}
+              <div className="wish-modal-actions">
+                <button
+                  type="submit"
+                  className="btn-submit-livestream-wish"
+                  disabled={isSubmitting || !senderName.trim() || !messageText.trim()}
+                >
+                  <Send size={16} />
+                  <span>{isSubmitting ? "Đang Gửi..." : "Gửi Lên Livestream Ngay"}</span>
+                </button>
+              </div>
+            </form>
+          )}
+        </motion.div>
+      </WishModal>
     </div>
   );
 }

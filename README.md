@@ -113,6 +113,15 @@ Thư mục `dist/` đã sẵn sàng để deploy lên bất kỳ hosting nào (V
 
 ---
 
+## Quản Lý Danh Sách Khách Mời
+
+- Truy cập `http://localhost:5173/#admin` và đăng nhập bằng mã PIN mặc định `14112026` (có thể đổi bằng nút **Đổi PIN**).
+- Trang admin mở sẵn tab **Danh Sách Khách Mời**. Chọn **Thêm Khách** để nhập họ tên, số điện thoại, nhóm, loại thiệp, số người dự kiến và ghi chú.
+- Tìm kiếm có hỗ trợ tên không dấu; lọc theo nhóm, loại thiệp, RSVP và trạng thái điểm danh. **Xóa bộ lọc** để xem lại toàn bộ danh sách.
+- Mỗi dòng có nút sửa, xóa, điểm danh, xem thiệp và xem mã QR/sao chép link mời cá nhân.
+- Dùng **Xuất Excel** để tải CSV hoặc **Nhập CSV** để thêm danh sách theo thứ tự cột: mã khách, họ tên, điện thoại, nhóm, sự kiện mời, số người dự kiến. Dùng file xuất làm mẫu.
+- Dữ liệu được lưu trong `localStorage` của trình duyệt đang dùng; lần đầu có danh sách mẫu. Có thể sao lưu bằng CSV hoặc dùng tab đồng bộ Google Sheets hiện có.
+
 ## ✏️ Hướng Dẫn Tùy Chỉnh Thông Tin
 
 Bạn có thể chỉnh sửa mọi thông tin một cách cực kỳ dễ dàng tại file [`src/data/weddingData.ts`](file:///t:/1.%20Sự%20kiện%20của%20Nong/wedding-invitation/src/data/weddingData.ts):

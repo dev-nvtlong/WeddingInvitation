@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { Guest, WishItem } from "../types/guestManagement";
 import { getWishes, addWish } from "../services/guestStorage";
+import WishModal from "./WishModal";
 
 interface LiveStreamFloatingWishesProps {
   currentGuest?: Guest;
@@ -309,92 +310,89 @@ export default function LiveStreamFloatingWishes({
       </div>
 
       {/* 4. MODAL NHẬP LỜI CHÚC NHANH */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <div className="wish-modal-backdrop">
-            <motion.div
-              className="wish-modal-dialog"
-              initial={{ opacity: 0, scale: 0.92, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.92, y: 20 }}
-              transition={{ duration: 0.25 }}
+      <WishModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
+        <motion.div
+          className="wish-modal-dialog"
+          initial={{ opacity: 0, scale: 0.92, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.92, y: 20 }}
+          transition={{ duration: 0.25 }}
+        >
+          <div className="wish-modal-header">
+            <div className="modal-header-title-wrap">
+              <Heart size={20} className="icon-header-heart" fill="#FF6B8B" color="#FF6B8B" />
+              <h4>Gửi Lời Chúc Mừng</h4>
+            </div>
+            <button
+              type="button"
+              className="btn-modal-close"
+              aria-label="Đóng hộp thoại lời chúc"
+              onClick={() => setIsModalOpen(false)}
             >
-              <div className="wish-modal-header">
-                <div className="modal-header-title-wrap">
-                  <Heart size={20} className="icon-header-heart" fill="#FF6B8B" color="#FF6B8B" />
-                  <h4>Gửi Lời Chúc Mừng</h4>
-                </div>
-                <button
-                  type="button"
-                  className="btn-modal-close"
-                  onClick={() => setIsModalOpen(false)}
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <p className="modal-description-sub">
-                Lời chúc của bạn sẽ xuất hiện trực tiếp trên luồng livestream nổi khắp mặt thiệp cưới!
-              </p>
-
-              <form onSubmit={handleSubmitWish} className="wish-modal-form">
-                <div className="modal-form-group">
-                  <label>Tên của bạn *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ví dụ: Anh Huy, Bạn Linh..."
-                    value={senderName}
-                    onChange={(e) => setSenderName(e.target.value)}
-                  />
-                </div>
-
-                <div className="modal-form-group">
-                  <label>Nội dung lời chúc *</label>
-                  <textarea
-                    rows={3}
-                    required
-                    placeholder="Nhập lời chúc ngọt ngào gửi đến cô dâu & chú rể..."
-                    value={wishContent}
-                    onChange={(e) => setWishContent(e.target.value)}
-                  />
-                </div>
-
-                {/* 7 GỢI Ý LỜI CHÚC NHANH */}
-                <div className="quick-suggestions-block">
-                  <span className="suggestions-label">
-                    <Sparkles size={13} style={{ display: "inline", marginRight: "4px" }} />
-                    Gợi ý lời chúc 1-chạm:
-                  </span>
-                  <div className="suggestions-chips-grid">
-                    {QUICK_SUGGESTIONS.map((suggestion, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        className="suggestion-chip-btn"
-                        onClick={() => setWishContent(suggestion)}
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="modal-form-footer">
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || !senderName.trim() || !wishContent.trim()}
-                    className="btn-submit-calendar-wish"
-                  >
-                    <Send size={16} />
-                    <span>{isSubmitting ? "Đang gửi..." : "GỬI LỜI CHÚC NGAY"}</span>
-                  </button>
-                </div>
-              </form>
-            </motion.div>
+              <X size={20} />
+            </button>
           </div>
-        )}
-      </AnimatePresence>
+
+          <p className="modal-description-sub">
+            Lời chúc của bạn sẽ xuất hiện trực tiếp trên luồng livestream nổi khắp mặt thiệp cưới!
+          </p>
+
+          <form onSubmit={handleSubmitWish} className="wish-modal-form">
+            <div className="modal-form-group">
+              <label>Tên của bạn *</label>
+              <input
+                type="text"
+                required
+                placeholder="Ví dụ: Anh Huy, Bạn Linh..."
+                value={senderName}
+                onChange={(e) => setSenderName(e.target.value)}
+              />
+            </div>
+
+            <div className="modal-form-group">
+              <label>Nội dung lời chúc *</label>
+              <textarea
+                rows={3}
+                required
+                placeholder="Nhập lời chúc ngọt ngào gửi đến cô dâu & chú rể..."
+                value={wishContent}
+                onChange={(e) => setWishContent(e.target.value)}
+              />
+            </div>
+
+            {/* 7 GỢI Ý LỜI CHÚC NHANH */}
+            <div className="quick-suggestions-block">
+              <span className="suggestions-label">
+                <Sparkles size={13} style={{ display: "inline", marginRight: "4px" }} />
+                Gợi ý lời chúc 1-chạm:
+              </span>
+              <div className="suggestions-chips-grid">
+                {QUICK_SUGGESTIONS.map((suggestion, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="suggestion-chip-btn"
+                    onClick={() => setWishContent(suggestion)}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="modal-form-footer">
+              <button
+                type="submit"
+                disabled={isSubmitting || !senderName.trim() || !wishContent.trim()}
+                className="btn-submit-calendar-wish"
+              >
+                <Send size={16} />
+                <span>{isSubmitting ? "Đang gửi..." : "GỬI LỜI CHÚC NGAY"}</span>
+              </button>
+            </div>
+          </form>
+        </motion.div>
+      </WishModal>
     </>
   );
 }

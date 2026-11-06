@@ -548,6 +548,16 @@
   overflow-x: auto;
 }
 
+.guest-list-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  font-size: 13px;
+  color: #6C5B5D;
+}
+
 .admin-data-table {
   width: 100%;
   border-collapse: collapse;
