@@ -453,6 +453,89 @@ export function useWishesSync(): {
 }
 
 /**
+ * Gửi RSVP của khách lên Google Sheets ngay khi khách xác nhận.
+ * Đây là điều kiện cốt lõi để Admin thấy trạng thái thời gian thực từ điện thoại.
+ */
+export async function sendRSVPToGoogleSheets(rsvpData: {
+  guestId: string;
+  guestCode: string;
+  fullName: string;
+  phone?: string;
+  side: "groom" | "bride";
+  status: "attending" | "declined" | "maybe";
+  attendeeCount: number;
+  note?: string;
+}): Promise<{ success: boolean; message: string }> {
+  const url = getActiveSheetUrl();
+  if (!url) {
+    // Không có URL thì thầm lặng thất bại — RSVP vẫn được lưu local
+    return { success: false, message: "Chưa cấu hình Google Sheets URL" };
+  }
+
+  const check = validateSheetUrl(url);
+  if (!check.valid) {
+    return { success: false, message: check.error || "URL không hợp lệ" };
+  }
+
+  const payload = {
+    action: "updateRSVP",
+    guestId: rsvpData.guestId,
+    guestCode: rsvpData.guestCode,
+    fullName: rsvpData.fullName,
+    phone: rsvpData.phone || "",
+    side: rsvpData.side,
+    status: rsvpData.status,
+    attendeeCount: rsvpData.attendeeCount,
+    note: rsvpData.note || "",
+    timestamp: new Date().toISOString(),
+  };
+
+  // Thử POST trước
+  try {
+    const res = await fetch(check.cleanUrl!, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+      redirect: "follow",
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    let data: any = null;
+    try { data = JSON.parse(text); } catch { /* ignore */ }
+    if (data?.status === "success") {
+      return { success: true, message: data.message || "Đã lưu RSVP lên Google Sheets!" };
+    }
+    throw new Error(data?.message || "Server không phản hồi thành công");
+  } catch (postErr) {
+    // Fallback: GET request
+    try {
+      const getParams = new URLSearchParams({
+        action: "updateRSVP",
+        guestId: payload.guestId,
+        guestCode: payload.guestCode,
+        fullName: payload.fullName,
+        phone: payload.phone,
+        side: payload.side,
+        status: payload.status,
+        attendeeCount: String(payload.attendeeCount),
+        note: payload.note,
+      });
+      const targetGet = `${check.cleanUrl!}${check.cleanUrl!.includes("?") ? "&" : "?"}${getParams.toString()}`;
+      const res = await fetch(targetGet, { method: "GET", redirect: "follow" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      let data: any = null;
+      try { data = JSON.parse(text); } catch { /* ignore */ }
+      if (data?.status === "success") {
+        return { success: true, message: data.message || "Đã lưu RSVP!" };
+      }
+    } catch { /* ignore fallback error */ }
+    console.warn("[RSVP] Không thể gửi lên Google Sheets, đã lưu local:", postErr);
+    return { success: false, message: "Không thể đồng bộ lên Sheets, đã lưu cục bộ" };
+  }
+}
+
+/**
  * Kiểm tra kết nối tới Google Apps Script Web App
  */
 export async function testGoogleSheetsConnection(config: GoogleSheetsConfig): Promise<SyncResult> {
@@ -681,6 +764,11 @@ function doGet(e) {
     return handleAddWish(e.parameter);
   }
 
+  // Khách xác nhận RSVP qua GET fallback (hoặc POST)
+  if (action === "updateRSVP") {
+    return handleUpdateRSVP(e.parameter);
+  }
+
   // Lấy riêng danh sách lời chúc cho website (nhanh, nhẹ)
   if (action === "getWishes") {
     return handleGetWishesOnly();
@@ -716,7 +804,12 @@ function doPost(e) {
       return handleAddWish(data);
     }
 
-    // 2. CÁC TÁC VỤ QUẢN TRỊ ADMIN (Yêu cầu mã token xác thực)
+    // 2. CHỨC NĂNG XÁC NHẬN RSVP (Công khai cho quan khách, không yêu cầu token)
+    if (data.action === "updateRSVP") {
+      return handleUpdateRSVP(data);
+    }
+
+    // 3. CÁC TÁC VỤ QUẢN TRỊ ADMIN (Yêu cầu mã token xác thực)
     if (data.token && data.token !== SECRET_TOKEN) {
       return createJsonResponse({ status: "error", message: "Mã token bảo mật không chính xác!" });
     }
@@ -821,6 +914,99 @@ function handleAddWish(data) {
       status: "error",
       message: "Lỗi ghi dữ liệu vào Google Sheets: " + err.toString()
     });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Xử lý xác nhận RSVP từ khách — ghi nhận vào sheet phù hợp (Nhà Trai / Nhà Gái)
+ * hoặc vào sheet riêng "RSVP" nếu khách không có trong danh sách mời sẵn.
+ */
+function handleUpdateRSVP(data) {
+  const lock = LockService.getScriptLock();
+  try {
+    const hasLock = lock.tryLock(10000);
+    if (!hasLock) {
+      return createJsonResponse({ status: "error", message: "Hệ thống đang bận, vui lòng thử lại!" });
+    }
+
+    const guestId   = String(data.guestId   || "").trim();
+    const guestCode = String(data.guestCode || "").trim();
+    const fullName  = String(data.fullName  || "").trim();
+    const phone     = String(data.phone     || "").trim();
+    const side      = String(data.side      || "groom").trim();
+    const status    = String(data.status    || "pending").trim();
+    const count     = Number(data.attendeeCount) || 1;
+    const note      = String(data.note      || "").trim();
+    const timeStr   = Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "HH:mm dd/MM/yyyy");
+
+    if (!fullName) {
+      return createJsonResponse({ status: "error", message: "Thiếu tên khách mời" });
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // --- Thử tìm khách trong Sheet Nhà Trai hoặc Nhà Gái ---
+    const sheetName = side === "bride" ? SHEET_BRIDE_NAME : SHEET_GROOM_NAME;
+    const partySheet = ss.getSheetByName(sheetName);
+    let updated = false;
+
+    if (partySheet && partySheet.getLastRow() > 1) {
+      const data2D = partySheet.getRange(2, 1, partySheet.getLastRow() - 1, 14).getValues();
+      for (let i = 0; i < data2D.length; i++) {
+        const rowGuestId   = String(data2D[i][1] || "").trim();
+        const rowName      = String(data2D[i][2] || "").trim().toLowerCase();
+        const isMatch = (guestId && rowGuestId === guestId) ||
+                        (guestCode && rowGuestId === guestCode) ||
+                        (fullName && rowName === fullName.toLowerCase());
+        if (isMatch) {
+          const statusLabel = status === "attending"
+            ? ("Tham dự (" + count + " người)")
+            : (status === "declined" ? "Từ chối" : "Chưa xác nhận");
+          // Cột 8 = RSVP sự kiện 1, Cột 9 = RSVP sự kiện 2 (1-indexed → thực tế cột 8,9)
+          partySheet.getRange(i + 2, 8).setValue(statusLabel);
+          partySheet.getRange(i + 2, 9).setValue(statusLabel);
+          partySheet.getRange(i + 2, 10).setValue(note);
+          partySheet.getRange(i + 2, 14).setValue(timeStr);
+          // Cập nhật SĐT nếu chưa có
+          if (phone && !String(data2D[i][3] || "").trim()) {
+            partySheet.getRange(i + 2, 4).setValue(phone);
+          }
+          updated = true;
+          break;
+        }
+      }
+    }
+
+    // --- Nếu không tìm thấy trong sheet → ghi vào sheet "RSVP Online" riêng ---
+    if (!updated) {
+      const RSVP_SHEET_NAME = "RSVP Online";
+      let rsvpSheet = ss.getSheetByName(RSVP_SHEET_NAME);
+      const headers = ["Thời Gian", "Họ Và Tên", "Điện Thoại", "Phía", "Trạng Thái", "Số Người", "Ghi Chú", "Guest ID"];
+      if (!rsvpSheet) {
+        rsvpSheet = ss.insertSheet(RSVP_SHEET_NAME);
+        rsvpSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        rsvpSheet.getRange(1, 1, 1, headers.length)
+          .setFontWeight("bold")
+          .setBackground("#2E7D32")
+          .setFontColor("#FFFFFF");
+      } else if (rsvpSheet.getLastRow() === 0) {
+        rsvpSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      }
+      const statusLabel = status === "attending" ? "Tham dự" : (status === "declined" ? "Từ chối" : "Chưa chắc");
+      const sideLabel = side === "bride" ? "Nhà Gái" : "Nhà Trai";
+      rsvpSheet.appendRow([timeStr, fullName, phone, sideLabel, statusLabel, count, note, guestId || guestCode]);
+    }
+
+    return createJsonResponse({
+      status: "success",
+      message: "Đã ghi nhận RSVP của " + fullName + "!",
+      updated: updated,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Lỗi ghi RSVP: " + err.toString() });
   } finally {
     lock.releaseLock();
   }

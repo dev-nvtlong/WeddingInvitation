@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Heart, CheckCircle2, UserCheck, AlertCircle } from "lucide-react";
 import type { Guest } from "../types/guestManagement";
 import { updateGuestRSVP, getGuests, addGuest } from "../services/guestStorage";
+import { sendRSVPToGoogleSheets } from "../services/googleSheetsService";
 import FloatingCalendarWishes from "./FloatingCalendarWishes";
 
 interface GuestBookSectionProps {
@@ -107,36 +108,37 @@ export default function GuestBookSection({
     setRsvpSubmitted(true);
 
     // Cập nhật vào hệ thống quản lý khách mời
+    let matchedGuest: Guest | undefined;
     try {
       const allGuests = getGuests();
-      const matched = currentGuest || allGuests.find((g) => g.fullName.toLowerCase() === rsvpName.trim().toLowerCase());
+      matchedGuest = currentGuest || allGuests.find((g) => g.fullName.toLowerCase() === rsvpName.trim().toLowerCase());
 
       const isAttending = rsvpStatus === "attending";
       const statusValue = rsvpStatus === "declined" ? "declined" : isAttending ? "attending" : "pending";
       const determinedSide: "groom" | "bride" = rsvpSide === "bride" ? "bride" : "groom";
 
-      if (matched) {
-        const isGroom = matched.side === "groom";
-        const evIds = matched.eventIds || [];
+      if (matchedGuest) {
+        const isGroom = matchedGuest.side === "groom";
+        const evIds = matchedGuest.eventIds || [];
 
         if (isGroom) {
           if (evIds.includes("tiec_than_mat") || evIds.length === 0) {
-            updateGuestRSVP(matched.id, "tiec_than_mat", statusValue, isAttending ? rsvpCount : 0, rsvpNote);
+            updateGuestRSVP(matchedGuest.id, "tiec_than_mat", statusValue, isAttending ? rsvpCount : 0, rsvpNote);
           }
           if (evIds.includes("thanh_hon") || evIds.length === 0) {
-            updateGuestRSVP(matched.id, "thanh_hon", statusValue, isAttending ? rsvpCount : 0, rsvpNote);
+            updateGuestRSVP(matchedGuest.id, "thanh_hon", statusValue, isAttending ? rsvpCount : 0, rsvpNote);
           }
         } else {
           if (evIds.includes("tiec_than_mat_nha_gai") || evIds.length === 0) {
-            updateGuestRSVP(matched.id, "tiec_than_mat_nha_gai", statusValue, isAttending ? rsvpCount : 0, rsvpNote);
+            updateGuestRSVP(matchedGuest.id, "tiec_than_mat_nha_gai", statusValue, isAttending ? rsvpCount : 0, rsvpNote);
           }
           if (evIds.includes("vu_quy") || evIds.length === 0) {
-            updateGuestRSVP(matched.id, "vu_quy", statusValue, isAttending ? rsvpCount : 0, rsvpNote);
+            updateGuestRSVP(matchedGuest.id, "vu_quy", statusValue, isAttending ? rsvpCount : 0, rsvpNote);
           }
         }
       } else {
         // Thêm khách mới vào danh sách quản lý theo đúng bên
-        addGuest({
+        matchedGuest = addGuest({
           fullName: rsvpName.trim(),
           phone: rsvpPhone.trim(),
           code: rsvpName.trim().toLowerCase().replace(/\s+/g, "-"),
@@ -158,6 +160,21 @@ export default function GuestBookSection({
     } catch (err) {
       console.error("Lỗi khi lưu RSVP vào hệ thống:", err);
     }
+
+    // Đẩy RSVP lên Google Sheets để Admin thấy ngay trên mọi thiết bị
+    const finalSide: "groom" | "bride" = matchedGuest?.side || (rsvpSide === "bride" ? "bride" : "groom");
+    sendRSVPToGoogleSheets({
+      guestId: matchedGuest?.id || `anon_${Date.now()}`,
+      guestCode: matchedGuest?.code || rsvpName.trim().toLowerCase().replace(/\s+/g, "-"),
+      fullName: rsvpName.trim(),
+      phone: rsvpPhone.trim(),
+      side: finalSide,
+      status: (rsvpStatus as "attending" | "declined" | "maybe"),
+      attendeeCount: rsvpCount,
+      note: rsvpNote,
+    }).catch(() => {
+      // Thất bại thầm lặng — RSVP đã lưu local, không cần báo lỗi cho khách
+    });
   };
 
   return (

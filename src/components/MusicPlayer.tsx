@@ -1,30 +1,34 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Music, Volume2, VolumeX } from "lucide-react";
 import { romanticAudio } from "../utils/audioSynth";
 
 interface MusicPlayerProps {
-  autoStart?: boolean;
+  /**
+   * Khi prop này chuyển từ false → true, trình phát sẽ bắt đầu.
+   * QUAN TRỌNG: prop này phải được set trong cùng một synchronous
+   * click-handler để iOS Safari cho phép phát audio tự động.
+   */
+  triggerStart?: boolean;
 }
 
-export default function MusicPlayer({ autoStart = false }: MusicPlayerProps) {
+export default function MusicPlayer({ triggerStart }: MusicPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [hasStartedOnce, setHasStartedOnce] = useState(false);
 
-  useEffect(() => {
-    if (autoStart) {
-      romanticAudio.start().then((started) => {
-        setIsPlaying(started);
-        if (started) {
-          setShowTooltip(true);
-          setTimeout(() => setShowTooltip(false), 4000);
-        }
-      });
-    }
-
-    return () => {
-      // Keep playing or let user control
-    };
-  }, [autoStart]);
+  // Được gọi bởi App khi người dùng nhấn "Mở thiệp" — CÙNG lúc với gesture
+  // App truyền onStartAudio callback xuống thay vì dùng useEffect
+  if (triggerStart && !hasStartedOnce) {
+    setHasStartedOnce(true);
+    // Gọi trực tiếp (synchronous path từ click) để iOS không block
+    romanticAudio.start().then((started) => {
+      setIsPlaying(started);
+      if (started) {
+        setShowTooltip(true);
+        setTimeout(() => setShowTooltip(false), 4000);
+      }
+    });
+  }
 
   const toggleMusic = () => {
     const nextState = romanticAudio.toggle();
@@ -35,7 +39,7 @@ export default function MusicPlayer({ autoStart = false }: MusicPlayerProps) {
     <div className="floating-music-container">
       {showTooltip && (
         <div className="music-toast-hint">
-          <span>♫ Đang phát giai điệu lãng mạn</span>
+          <span>♫ Đang phát nhạc nền</span>
         </div>
       )}
 

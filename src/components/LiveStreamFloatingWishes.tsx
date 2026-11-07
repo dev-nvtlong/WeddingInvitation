@@ -247,11 +247,11 @@ export default function LiveStreamFloatingWishes({
                           <strong className="bubble-guest-name">
                             {item.name}
                           </strong>
-                          {item.relationship && (
+                          {/* {item.relationship && (
                             <span className="bubble-guest-role">
                               • {item.relationship}
                             </span>
-                          )}
+                          )} */}
                         </div>
                         <p className="bubble-guest-msg">{item.message}</p>
                       </div>

@@ -1,33 +1,30 @@
-// Web Audio API Romantic Wedding Synthesizer
-// Zero external network dependency - plays beautiful ambient piano chords
+// Web Audio API Romantic Wedding Player
+// Ưu tiên phát file MP3 nhạc nền thực tế, fallback về Web Audio synth nếu cần
 
 class RomanticAudioPlayer {
   private audioCtx: AudioContext | null = null;
   private isPlaying: boolean = false;
   private timerId: number | null = null;
   private htmlAudio: HTMLAudioElement | null = null;
-  private hasMp3: boolean = false;
 
   constructor() {
-    // Check if an MP3 exists
-    this.checkMp3Support();
+    // Tạo sẵn Audio element ngay lúc khởi tạo (không chờ event)
+    this.prepareAudioElement();
   }
 
-  private checkMp3Support() {
+  private prepareAudioElement() {
     try {
-      const audio = new Audio("/music/nhac_nen.mp3");
+      const audio = new Audio();
       audio.loop = true;
       audio.preload = "auto";
-      audio.addEventListener("canplaythrough", () => {
-        this.hasMp3 = true;
-        this.htmlAudio = audio;
-      });
-      audio.addEventListener("error", () => {
-        this.hasMp3 = false;
-        this.htmlAudio = null;
-      });
+      // Thêm nhiều source để tăng khả năng tương thích (đặc biệt iOS Safari)
+      audio.src = "/music/nhac_nen.mp3";
+      // Gắn vào DOM ẩn để iOS không block (iOS yêu cầu element phải có trong document)
+      audio.setAttribute("playsinline", "true");
+      audio.setAttribute("webkit-playsinline", "true");
+      this.htmlAudio = audio;
     } catch {
-      this.hasMp3 = false;
+      this.htmlAudio = null;
     }
   }
 
@@ -35,21 +32,29 @@ class RomanticAudioPlayer {
     return this.isPlaying;
   }
 
+  /**
+   * Phải được gọi TRỰC TIẾP trong một user gesture handler (click, touch)
+   * để iOS Safari cho phép phát audio.
+   */
   public async start(): Promise<boolean> {
     if (this.isPlaying) return true;
 
-    // Try HTML audio first if available
-    if (this.hasMp3 && this.htmlAudio) {
+    // --- Thử phát HTML Audio (MP3) ---
+    if (this.htmlAudio) {
       try {
+        // Reset lại src nếu bị lỗi trước đó
+        if (this.htmlAudio.error) {
+          this.htmlAudio.load();
+        }
         await this.htmlAudio.play();
         this.isPlaying = true;
         return true;
       } catch (err) {
-        console.warn("HTML audio play error, falling back to Web Audio synth", err);
+        console.warn("[Audio] HTML audio play failed, falling back to Web Audio synth:", err);
       }
     }
 
-    // Web Audio Synthesizer fallback
+    // --- Fallback: Web Audio API Synthesizer ---
     try {
       const AudioContextClass =
         window.AudioContext ||
@@ -68,7 +73,7 @@ class RomanticAudioPlayer {
       this.startMelodyLoop();
       return true;
     } catch (e) {
-      console.error("Web audio failed to initialize", e);
+      console.error("[Audio] Web audio failed to initialize:", e);
       return false;
     }
   }
@@ -81,6 +86,9 @@ class RomanticAudioPlayer {
     if (this.timerId !== null) {
       window.clearTimeout(this.timerId);
       this.timerId = null;
+    }
+    if (this.audioCtx) {
+      this.audioCtx.suspend().catch(() => {});
     }
   }
 
@@ -101,11 +109,9 @@ class RomanticAudioPlayer {
       const osc = this.audioCtx.createOscillator();
       const gain = this.audioCtx.createGain();
 
-      // Soft triangle/sine wave for a warm music-box / electric piano sound
       osc.type = "sine";
       osc.frequency.setValueAtTime(freq, startTime);
 
-      // Envelope: gentle attack, warm decay
       gain.gain.setValueAtTime(0.0001, startTime);
       gain.gain.exponentialRampToValueAtTime(volume, startTime + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
@@ -116,25 +122,22 @@ class RomanticAudioPlayer {
       osc.start(startTime);
       osc.stop(startTime + duration);
     } catch {
-      // Ignore audio glitches
+      // Bỏ qua lỗi audio nhỏ
     }
   }
 
   private startMelodyLoop(): void {
     if (!this.isPlaying || !this.audioCtx) return;
 
-    // Frequencies for a romantic Pachelbel / Wedding progression in D Major:
-    // D4, F#4, A4, D5 | A3, C#4, E4, A4 | B3, D4, F#4, B4 | F#3, A3, C#4, F#4
-    // G3, B3, D4, G4 | D3, F#3, A3, D4 | G3, B3, D4, G4 | A3, C#4, E4, A4
     const chords: number[][] = [
-      [293.66, 369.99, 440.0, 587.33], // D maj
-      [220.0, 277.18, 329.63, 440.0],  // A maj
-      [246.94, 293.66, 369.99, 493.88], // B min
-      [185.0, 220.0, 277.18, 369.99],   // F# min
-      [196.0, 246.94, 293.66, 392.0],   // G maj
-      [146.83, 220.0, 293.66, 369.99],  // D maj
-      [196.0, 246.94, 293.66, 440.0],   // G maj
-      [220.0, 277.18, 329.63, 493.88],  // A maj
+      [293.66, 369.99, 440.0, 587.33],
+      [220.0, 277.18, 329.63, 440.0],
+      [246.94, 293.66, 369.99, 493.88],
+      [185.0, 220.0, 277.18, 369.99],
+      [196.0, 246.94, 293.66, 392.0],
+      [146.83, 220.0, 293.66, 369.99],
+      [196.0, 246.94, 293.66, 440.0],
+      [220.0, 277.18, 329.63, 493.88],
     ];
 
     let chordIndex = 0;
@@ -146,11 +149,9 @@ class RomanticAudioPlayer {
       const notes = chords[chordIndex];
       chordIndex = (chordIndex + 1) % chords.length;
 
-      // Arpeggiate the 4 notes gently across 2.4 seconds
       const step = 0.55;
       notes.forEach((freq, idx) => {
         this.playTone(freq, now + idx * step, 1.8, idx === 0 ? 0.14 : 0.09);
-        // Add a gentle octave sparkle for the melody
         if (idx === 3) {
           this.playTone(freq * 1.5, now + idx * step + 0.3, 1.2, 0.05);
         }

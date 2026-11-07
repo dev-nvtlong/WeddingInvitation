@@ -9,6 +9,7 @@ import GuestBookSection from "./components/GuestBookSection";
 import GiftSection from "./components/GiftSection";
 import Footer from "./components/Footer";
 import MusicPlayer from "./components/MusicPlayer";
+import { romanticAudio } from "./utils/audioSynth";
 import PetalAnimation from "./components/PetalAnimation";
 import Navigation from "./components/Navigation";
 import ShareModal from "./components/ShareModal";
@@ -56,7 +57,10 @@ export default function App() {
 
   const handleOpenInvitation = () => {
     setIsOpened(true);
-    setAudioTrigger(true);
+    // Gọi start() NGAY TRONG click handler để iOS Safari không chặn autoplay
+    romanticAudio.start().then((started) => {
+      setAudioTrigger(started);
+    });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -97,7 +101,7 @@ export default function App() {
       <PetalAnimation />
 
       {/* Trình phát nhạc nền */}
-      <MusicPlayer autoStart={audioTrigger} />
+      <MusicPlayer triggerStart={audioTrigger} />
 
       {/* Nội dung chính của thiệp cưới */}
       <main className={`wedding-main-container ${isOpened ? "opened" : "blurred"}`}>
