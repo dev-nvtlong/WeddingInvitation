@@ -356,7 +356,7 @@ export const weddingData: WeddingData = {
   music: {
     title: "A Thousand Years (Romantic Piano)",
     artist: "Wedding Melody",
-    url: "https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a73467.mp3?filename=romantic-wedding-piano-10651.mp3",
+    url: "/music/nhac_nen.mp3",
   },
   quote: {
     text: "Hạnh phúc không phải là tìm kiếm một người hoàn hảo, mà là học cách yêu trọn vẹn một người không hoàn hảo.",

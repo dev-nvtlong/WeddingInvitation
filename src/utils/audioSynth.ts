@@ -15,7 +15,7 @@ class RomanticAudioPlayer {
 
   private checkMp3Support() {
     try {
-      const audio = new Audio("/audio/wedding-music.mp3");
+      const audio = new Audio("/music/nhac_nen.mp3");
       audio.loop = true;
       audio.preload = "auto";
       audio.addEventListener("canplaythrough", () => {
