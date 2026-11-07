@@ -1,5 +1,6 @@
-import type { GoogleSheetsConfig, Guest } from "../types/guestManagement";
-import { getGuests, saveGuests, getWishes, saveWishes, saveSheetConfig, normalizeGuest } from "./guestStorage";
+import { useState, useEffect } from "react";
+import type { GoogleSheetsConfig, Guest, WishItem } from "../types/guestManagement.ts";
+import { getGuests, saveGuests, getWishes, saveWishes, saveSheetConfig, normalizeGuest, getSheetConfig } from "./guestStorage.ts";
 
 export interface SyncResult {
   success: boolean;
@@ -8,6 +9,25 @@ export interface SyncResult {
   groomCount?: number;
   brideCount?: number;
   wishCount?: number;
+}
+
+/**
+ * Lấy URL Google Apps Script Web App đang kích hoạt:
+ * 1. Ưu tiên biến môi trường Vercel/Vite: VITE_GOOGLE_SHEETS_URL hoặc VITE_APPS_SCRIPT_URL
+ * 2. Tiếp theo lấy từ cấu hình Admin lưu trong localStorage
+ */
+export function getActiveSheetUrl(): string {
+  if (typeof import.meta !== "undefined" && import.meta.env) {
+    const envUrl = (import.meta.env.VITE_GOOGLE_SHEETS_URL || import.meta.env.VITE_APPS_SCRIPT_URL || "").trim();
+    if (envUrl) return envUrl;
+  }
+
+  const localConf = getSheetConfig();
+  if (localConf && localConf.webAppUrl && localConf.webAppUrl.trim()) {
+    return localConf.webAppUrl.trim();
+  }
+
+  return "";
 }
 
 /**
@@ -79,7 +99,7 @@ async function callGoogleScript(url: string, payload: any, method: "POST" | "GET
     }
   }
 
-  // Method POST: Gửi dạng text/plain để vượt qua CORS Preflight
+  // Method POST: Gửi dạng text/plain để vượt qua CORS Preflight (Simple request)
   try {
     const res = await fetch(cleanUrl, {
       method: "POST",
@@ -101,27 +121,335 @@ async function callGoogleScript(url: string, payload: any, method: "POST" | "GET
       return { status: "success", message: text || "Đồng bộ thành công!" };
     }
   } catch (fetchErr: any) {
-    if (fetchErr.message?.includes("Failed to fetch") || fetchErr.name === "TypeError") {
-      try {
-        await fetch(cleanUrl, {
-          method: "POST",
-          mode: "no-cors",
-          headers: {
-            "Content-Type": "text/plain;charset=utf-8",
-          },
-          body: JSON.stringify(payload),
-        });
-        return {
-          status: "success",
-          message: "Dữ liệu đã được gửi sang Google Sheets thành công (chế độ bảo mật no-cors).",
-          isNoCors: true,
-        };
-      } catch (fallbackErr) {
-        throw fetchErr;
-      }
-    }
     throw fetchErr;
   }
+}
+
+/**
+ * Gửi một lời chúc mới trực tiếp lên Google Sheets (action: "addWish")
+ * Xử lý chặt chẽ: Chỉ khi Google Sheets xác nhận lưu thành công mới trả về success: true
+ */
+export async function sendWishToGoogleSheets(wishData: {
+  name: string;
+  message: string;
+  relationship?: string;
+  guestCode?: string;
+  guestId?: string;
+}): Promise<{ success: boolean; message: string; wish?: WishItem }> {
+  const name = wishData.name.trim();
+  const message = wishData.message.trim();
+  const relationship = (wishData.relationship || "Bạn bè").trim();
+
+  if (!name) {
+    return { success: false, message: "Vui lòng nhập họ và tên của bạn!" };
+  }
+  if (!message) {
+    return { success: false, message: "Vui lòng nhập nội dung lời chúc!" };
+  }
+  if (name.length > 100) {
+    return { success: false, message: "Tên không được vượt quá 100 ký tự!" };
+  }
+  if (message.length > 1000) {
+    return { success: false, message: "Lời chúc không được vượt quá 1000 ký tự!" };
+  }
+
+  const url = getActiveSheetUrl();
+  if (!url) {
+    return {
+      success: false,
+      message: "Chưa cấu hình URL Google Apps Script. Vui lòng thêm URL trong trang Quản trị hoặc biến môi trường Vercel (VITE_GOOGLE_SHEETS_URL)!",
+    };
+  }
+
+  const check = validateSheetUrl(url);
+  if (!check.valid) {
+    return {
+      success: false,
+      message: check.error || "URL Google Apps Script không hợp lệ.",
+    };
+  }
+
+  const payload = {
+    action: "addWish",
+    name,
+    message,
+    relationship,
+    guestCode: wishData.guestCode || "",
+    guestId: wishData.guestId || "",
+    timestamp: new Date().toISOString(),
+  };
+
+  // 1. Thử gửi POST với Content-Type: text/plain;charset=utf-8
+  try {
+    const res = await fetch(check.cleanUrl!, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify(payload),
+      redirect: "follow",
+    });
+
+    if (!res.ok) {
+      throw new Error(`Máy chủ Google phản hồi HTTP ${res.status}`);
+    }
+
+    const text = await res.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("Phản hồi từ Google Apps Script không đúng định dạng JSON: " + text.slice(0, 100));
+    }
+
+    if (data.status !== "success") {
+      throw new Error(data.message || "Google Sheets từ chối lưu lời chúc.");
+    }
+
+    const savedWish: WishItem = data.wish || {
+      id: "wish_" + Date.now(),
+      name,
+      relationship,
+      message,
+      createdAt: "Vừa xong",
+      isApproved: true,
+      guestCode: payload.guestCode,
+      guestId: payload.guestId,
+    };
+
+    recordNewWishLocally(savedWish);
+
+    return {
+      success: true,
+      message: data.message || "Gửi lời chúc thành công!",
+      wish: savedWish,
+    };
+  } catch (postErr: any) {
+    console.warn("POST lên Google Apps Script không thành công, thử fallback GET:", postErr);
+
+    // 2. Fallback gửi GET có tham số query (vượt qua hoàn toàn các hạn chế CORS trên một số trình duyệt)
+    try {
+      const getParams = new URLSearchParams({
+        action: "addWish",
+        name,
+        message,
+        relationship,
+      });
+      const targetGet = `${check.cleanUrl!}${check.cleanUrl!.includes("?") ? "&" : "?"}${getParams.toString()}`;
+      const getRes = await fetch(targetGet, {
+        method: "GET",
+        redirect: "follow",
+      });
+
+      if (!getRes.ok) {
+        throw new Error(`Máy chủ Google phản hồi HTTP ${getRes.status}`);
+      }
+
+      const getText = await getRes.text();
+      const getData = JSON.parse(getText);
+
+      if (getData.status !== "success") {
+        throw new Error(getData.message || "Google Sheets từ chối lưu lời chúc.");
+      }
+
+      const savedWish: WishItem = getData.wish || {
+        id: "wish_" + Date.now(),
+        name,
+        relationship,
+        message,
+        createdAt: "Vừa xong",
+        isApproved: true,
+      };
+
+      recordNewWishLocally(savedWish);
+
+      return {
+        success: true,
+        message: getData.message || "Gửi lời chúc thành công!",
+        wish: savedWish,
+      };
+    } catch (fallbackErr: any) {
+      console.error("Gửi lời chúc thất bại cả POST và GET:", fallbackErr);
+      return {
+        success: false,
+        message: `Không thể lưu vào Google Sheets: ${fallbackErr.message || postErr.message || "Lỗi kết nối mạng"}. Vui lòng thử lại!`,
+      };
+    }
+  }
+}
+
+/**
+ * Ghi nhận lời chúc mới vào cache cục bộ và kích hoạt sự kiện đồng bộ
+ */
+export function recordNewWishLocally(wish: WishItem): void {
+  const current = getWishes();
+  if (!current.some((w) => String(w.id) === String(wish.id))) {
+    const updated = [wish, ...current];
+    saveWishes(updated);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("wedding_wishes_updated", { detail: updated }));
+    }
+  }
+}
+
+/**
+ * Tải danh sách lời chúc từ Google Sheets (action: "getWishes" hoặc "get")
+ * Chỉ trả về các lời chúc có trạng thái Hiển thị, sắp xếp mới nhất lên đầu
+ */
+export async function fetchWishesFromGoogleSheets(): Promise<WishItem[] | null> {
+  const url = getActiveSheetUrl();
+  if (!url) return null;
+
+  const check = validateSheetUrl(url);
+  if (!check.valid) return null;
+
+  try {
+    const target = `${check.cleanUrl!}${check.cleanUrl!.includes("?") ? "&" : "?"}action=getWishes`;
+    const res = await fetch(target, { method: "GET", redirect: "follow" });
+    if (!res.ok) return null;
+
+    const text = await res.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return null;
+    }
+
+    if (data && data.status === "success" && Array.isArray(data.wishes)) {
+      const validWishes: WishItem[] = data.wishes
+        .filter((w: any) => {
+          if (!w) return false;
+          const statusStr = String(w.isApproved || "").toLowerCase();
+          return (
+            w.isApproved === true ||
+            statusStr.includes("hiển thị") ||
+            statusStr === "true" ||
+            statusStr === ""
+          );
+        })
+        .map((w: any, idx: number) => {
+          const msg = String(w.message || w.content || "").trim();
+          return {
+            id: String(w.id || `wish_${idx}_${Date.now()}`),
+            name: String(w.name || "Khách Quý").trim(),
+            relationship: String(w.relationship || "Khách mời").trim(),
+            message: msg,
+            createdAt: String(w.createdAt || "Gần đây").trim(),
+            isApproved: true,
+          };
+        })
+        .filter((w: WishItem) => w.name && w.message);
+
+      return validWishes;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * React Hook đồng bộ danh sách lời chúc real-time giữa các thiết bị
+ * - Tải dữ liệu ban đầu từ Google Sheets
+ * - Tự động thăm dò (polling) mỗi 4 giây
+ * - Tự cập nhật giao diện khi có lời chúc mới mà không cần F5
+ * - Tự động loại bỏ data cũ / mock data rác
+ */
+export function useWishesSync(): {
+  wishes: WishItem[];
+  setWishes: React.Dispatch<React.SetStateAction<WishItem[]>>;
+} {
+  const [wishes, setWishes] = useState<WishItem[]>(() => getWishes());
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Tải danh sách lời chúc từ Google Sheets ngay khi mở trang
+    async function loadInitial() {
+      const remote = await fetchWishesFromGoogleSheets();
+      if (!isMounted) return;
+
+      if (remote !== null) {
+        // NẾU KẾT NỐI ĐƯỢC GOOGLE SHEETS:
+        // Google Sheets là nguồn dữ liệu chuẩn duy nhất (Single Source of Truth).
+        // Thay thế sạch sẽ toàn bộ data cũ rác bằng danh sách thực từ Google Sheets.
+        const recentLocalWishes = getWishes().filter((w) => {
+          if (typeof w.id === "string" && w.id.startsWith("wish_local_")) {
+            const time = parseInt(w.id.replace("wish_local_", ""), 10);
+            return Date.now() - time < 60000;
+          }
+          return false;
+        });
+
+        const map = new Map<string, WishItem>();
+        // Lời chúc từ Google Sheets (mới nhất lên đầu)
+        remote.forEach((w) => map.set(String(w.id), w));
+        // Giữ lại lời chúc vừa gửi cục bộ nếu chưa sync xong
+        recentLocalWishes.forEach((w) => {
+          if (!map.has(String(w.id))) {
+            map.set(String(w.id), w);
+          }
+        });
+
+        const cleanList = Array.from(map.values());
+        saveWishes(cleanList);
+        setWishes(cleanList);
+        return;
+      }
+
+      // Nếu không có kết nối Google Sheets (hoặc offline):
+      // Dọn dẹp các data cũ ảo trong localStorage
+      const current = getWishes();
+      setWishes(current);
+    }
+
+    loadInitial();
+
+    // 2. Polling kiểm tra dữ liệu mới sau mỗi 4 giây
+    const pollInterval = setInterval(async () => {
+      // Chỉ fetch khi tab đang active
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+
+      const remote = await fetchWishesFromGoogleSheets();
+      if (!isMounted || remote === null) return;
+
+      setWishes((prev) => {
+        const remoteIds = remote.map((w) => String(w.id)).join(",");
+        const prevIds = prev.map((w) => String(w.id)).join(",");
+
+        if (remoteIds === prevIds) {
+          return prev;
+        }
+
+        // Cập nhật danh sách mới nhất từ Google Sheets và lưu lại
+        saveWishes(remote);
+        return remote;
+      });
+    }, 4000);
+
+    // 3. Lắng nghe sự kiện cập nhật lời chúc nội bộ
+    const handleWishesUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<WishItem[]>;
+      if (customEvent.detail && Array.isArray(customEvent.detail)) {
+        setWishes(customEvent.detail);
+      } else {
+        setWishes(getWishes());
+      }
+    };
+
+    window.addEventListener("wedding_wishes_updated", handleWishesUpdated);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+      window.removeEventListener("wedding_wishes_updated", handleWishesUpdated);
+    };
+  }, []);
+
+  return { wishes, setWishes };
 }
 
 /**
@@ -134,16 +462,16 @@ export async function testGoogleSheetsConnection(config: GoogleSheetsConfig): Pr
   }
 
   try {
-    const data = await callGoogleScript(check.cleanUrl!, { action: "test", token: config.secretToken }, "GET");
+    const data = await callGoogleScript(check.cleanUrl!, { action: "test" }, "GET");
     if (data.status === "success" || data.status === "online") {
       return {
         success: true,
-        message: "Kết nối thành công! Google Apps Script Web App đang hoạt động trực tuyến.",
+        message: data.message || "Kết nối Google Apps Script thành công!",
       };
     }
     return {
       success: false,
-      message: `Google phản hồi: ${data.message || JSON.stringify(data)}`,
+      message: data.message || "Máy chủ phản hồi nhưng trạng thái không thành công.",
     };
   } catch (err: any) {
     return {
@@ -308,16 +636,17 @@ export async function syncWithGoogleSheets(config: GoogleSheetsConfig): Promise<
 }
 
 /**
- * Mã nguồn Google Apps Script phiên bản 3.0:
- * - Tách 2 Sheet độc lập: "Khách mời nhà trai" và "Khách mời nhà gái"
- * - Sheet "LoiChuc" cho lời chúc
- * - Đồng bộ chính xác theo Guest ID, không ghi trùng
- * - Khách nhà trai chỉ ở Sheet nhà trai, khách nhà gái chỉ ở Sheet nhà gái
+ * Mã nguồn Google Apps Script phiên bản 3.0 hoàn chỉnh:
+ * - Tách 2 Sheet: "Khách mời nhà trai" & "Khách mời nhà gái"
+ * - Sheet "LoiChuc" ghi nhận lời chúc thực tế từ quan khách (action: "addWish")
+ * - LockService chống xung đột ghi đồng thời
+ * - Không xóa, không ghi đè lời chúc cũ
  */
 export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * =========================================================================
  * GOOGLE APPS SCRIPT CHO THIỆP CƯỚI TRƯỜNG LONG & THANH TỚI (PHIÊN BẢN 3.0)
  * HỖ TRỢ TÁCH RIÊNG 2 SHEET: "Khách mời nhà trai" & "Khách mời nhà gái"
+ * VÀ SHEET "LoiChuc" GHI NHẬN LỜI CHÚC TRỰC TIẾP TỪ QUAN KHÁCH
  * =========================================================================
  * HƯỚNG DẪN CÀI ĐẶT TRONG 2 PHÚT:
  * 1. Mở Google Sheet -> Menu "Tiện ích mở rộng" (Extensions) -> "Apps Script".
@@ -327,7 +656,7 @@ export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * 5. Mục "Thực thi dưới dạng" (Execute as): Chọn "Tôi" (Me).
  * 6. Mục "Ai có quyền truy cập" (Who has access): Chọn "Bất kỳ ai" (Anyone). -> BẮT BUỘC!
  * 7. Bấm "Triển khai" (Deploy) -> Cho phép quyền truy cập (Authorize access).
- * 8. Sao chép URL Ứng dụng web (kết thúc bằng /exec) dán vào trang Quản trị!
+ * 8. Sao chép URL Ứng dụng web (kết thúc bằng /exec) dán vào trang Quản trị hoặc cài đặt biến môi trường Vercel (VITE_GOOGLE_SHEETS_URL)!
  */
 
 const SECRET_TOKEN = "LONG_TOI_WEDDING_2026";
@@ -342,11 +671,22 @@ function doGet(e) {
   if (action === "test" || action === "ping") {
     return createJsonResponse({
       status: "success",
-      message: "Kết nối thành công! Google Apps Script v3.0 (Tách 2 Sheet) đang hoạt động trực tuyến.",
+      message: "Kết nối thành công! Google Apps Script v3.0 (Đồng bộ khách & Ghi nhận lời chúc) đang hoạt động trực tuyến.",
       timestamp: new Date().toISOString()
     });
   }
 
+  // Khách gửi lời chúc qua GET fallback
+  if (action === "addWish") {
+    return handleAddWish(e.parameter);
+  }
+
+  // Lấy riêng danh sách lời chúc cho website (nhanh, nhẹ)
+  if (action === "getWishes") {
+    return handleGetWishesOnly();
+  }
+
+  // Đọc toàn bộ dữ liệu (khách nhà trai, nhà gái, lời chúc)
   if (action === "get" || action === "pull") {
     return handleGetData(e);
   }
@@ -371,6 +711,12 @@ function doPost(e) {
       return createJsonResponse({ status: "error", message: "Không nhận được dữ liệu (Empty payload)" });
     }
 
+    // 1. CHỨC NĂNG GỬI LỜI CHÚC MỚI (Công khai cho toàn bộ quan khách, không yêu cầu admin token)
+    if (data.action === "addWish") {
+      return handleAddWish(data);
+    }
+
+    // 2. CÁC TÁC VỤ QUẢN TRỊ ADMIN (Yêu cầu mã token xác thực)
     if (data.token && data.token !== SECRET_TOKEN) {
       return createJsonResponse({ status: "error", message: "Mã token bảo mật không chính xác!" });
     }
@@ -386,6 +732,139 @@ function doPost(e) {
       message: error.toString()
     });
   }
+}
+
+/**
+ * Xử lý thêm lời chúc mới trực tiếp vào sheet LoiChuc
+ * Sử dụng LockService để chống xung đột khi nhiều khách gửi đồng thời
+ */
+function handleAddWish(data) {
+  const lock = LockService.getScriptLock();
+  try {
+    // Chờ tối đa 10 giây để lấy lock an toàn
+    const hasLock = lock.tryLock(10000);
+    if (!hasLock) {
+      return createJsonResponse({
+        status: "error",
+        message: "Hệ thống đang bận xử lý lời chúc khác, vui lòng thử lại sau 2 giây!"
+      });
+    }
+
+    const name = String(data.name || "").trim();
+    const message = String(data.message || "").trim();
+    const relationship = String(data.relationship || "Bạn bè").trim();
+
+    if (!name) {
+      return createJsonResponse({ status: "error", message: "Vui lòng nhập tên của bạn!" });
+    }
+    if (!message) {
+      return createJsonResponse({ status: "error", message: "Vui lòng nhập nội dung lời chúc!" });
+    }
+    if (name.length > 100) {
+      return createJsonResponse({ status: "error", message: "Tên không được vượt quá 100 ký tự!" });
+    }
+    if (message.length > 1000) {
+      return createJsonResponse({ status: "error", message: "Lời chúc không được vượt quá 1000 ký tự!" });
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheetWishes = ss.getSheetByName(SHEET_WISHES_NAME);
+    const wishHeaders = ["Mã", "Người Gửi", "Quan Hệ", "Nội Dung Lời Chúc", "Thời Gian", "Hiển Thị"];
+
+    if (!sheetWishes) {
+      sheetWishes = ss.insertSheet(SHEET_WISHES_NAME);
+      sheetWishes.getRange(1, 1, 1, wishHeaders.length).setValues([wishHeaders]);
+      sheetWishes.getRange(1, 1, 1, wishHeaders.length)
+        .setFontWeight("bold")
+        .setBackground("#65001D")
+        .setFontColor("#FFFFFF");
+    } else if (sheetWishes.getLastRow() === 0) {
+      sheetWishes.getRange(1, 1, 1, wishHeaders.length).setValues([wishHeaders]);
+      sheetWishes.getRange(1, 1, 1, wishHeaders.length)
+        .setFontWeight("bold")
+        .setBackground("#65001D")
+        .setFontColor("#FFFFFF");
+    }
+
+    const wishId = "wish_" + new Date().getTime() + "_" + Math.floor(Math.random() * 1000);
+    const timeFormatted = Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "HH:mm dd/MM/yyyy");
+    const statusText = "Hiển thị";
+
+    // Ghi trực tiếp một dòng mới vào cuối sheet LoiChuc mà KHÔNG xóa các lời chúc cũ
+    sheetWishes.appendRow([
+      wishId,
+      name,
+      relationship,
+      message,
+      timeFormatted,
+      statusText
+    ]);
+
+    const newWish = {
+      id: wishId,
+      name: name,
+      relationship: relationship,
+      message: message,
+      content: message,
+      createdAt: timeFormatted,
+      isApproved: true
+    };
+
+    return createJsonResponse({
+      status: "success",
+      message: "Gửi lời chúc thành công!",
+      wish: newWish,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    return createJsonResponse({
+      status: "error",
+      message: "Lỗi ghi dữ liệu vào Google Sheets: " + err.toString()
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Đọc riêng danh sách lời chúc từ Sheet LoiChuc cho website hiển thị real-time
+ */
+function handleGetWishesOnly() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetWishes = ss.getSheetByName(SHEET_WISHES_NAME);
+  const wishes = [];
+
+  if (sheetWishes && sheetWishes.getLastRow() > 1) {
+    const dataWishes = sheetWishes.getRange(2, 1, sheetWishes.getLastRow() - 1, 6).getValues();
+    for (let idx = 0; idx < dataWishes.length; idx++) {
+      const r = dataWishes[idx];
+      const name = String(r[1] || "").trim();
+      const message = String(r[3] || "").trim();
+      if (!name && !message) continue;
+
+      const isApproved = String(r[5] || "").toLowerCase().includes("hiển thị") || r[5] === true || r[5] === 1;
+      if (isApproved) {
+        wishes.push({
+          id: r[0] || ("wish_sheet_" + (idx + 1)),
+          name: name,
+          relationship: String(r[2] || "Bạn bè").trim(),
+          message: message,
+          content: message,
+          createdAt: r[4] ? String(r[4]) : new Date().toISOString(),
+          isApproved: true
+        });
+      }
+    }
+  }
+
+  // Sắp xếp mới nhất lên đầu
+  wishes.reverse();
+
+  return createJsonResponse({
+    status: "success",
+    wishes: wishes,
+    timestamp: new Date().toISOString()
+  });
 }
 
 /**
@@ -425,7 +904,6 @@ function writePartySheet(ss, sheetName, guestList, headerColor, side) {
     .setBackground(headerColor)
     .setFontColor("#FFFFFF");
 
-  // Xóa dữ liệu cũ từ dòng 2
   const lastRow = sheet.getLastRow();
   if (lastRow > 1) {
     sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
@@ -486,41 +964,43 @@ function handleSyncData(data) {
   // 2. Ghi vào Sheet "Khách mời nhà gái" (Màu Rose Pink #B8506C)
   const brideCount = writePartySheet(ss, SHEET_BRIDE_NAME, brideGuests, "#B8506C", "bride");
 
-  // 3. Ghi Lời chúc vào Sheet "LoiChuc"
+  // 3. Ghi Lời chúc vào Sheet "LoiChuc" (Hợp nhất không xóa mất lời chúc gửi từ khách)
   let wishCount = 0;
   if (data.wishes && Array.isArray(data.wishes)) {
     let sheetWishes = ss.getSheetByName(SHEET_WISHES_NAME);
+    const wishHeaders = ["Mã", "Người Gửi", "Quan Hệ", "Nội Dung Lời Chúc", "Thời Gian", "Hiển Thị"];
+
     if (!sheetWishes) {
       sheetWishes = ss.insertSheet(SHEET_WISHES_NAME);
+      sheetWishes.getRange(1, 1, 1, wishHeaders.length).setValues([wishHeaders]);
+      sheetWishes.getRange(1, 1, 1, wishHeaders.length)
+        .setFontWeight("bold")
+        .setBackground("#65001D")
+        .setFontColor("#FFFFFF");
     }
 
-    const wishHeaders = ["Mã", "Người Gửi", "Quan Hệ", "Nội Dung Lời Chúc", "Thời Gian", "Hiển Thị"];
-    if (sheetWishes.getMaxColumns() < wishHeaders.length) {
-      sheetWishes.insertColumnsAfter(sheetWishes.getMaxColumns(), wishHeaders.length - sheetWishes.getMaxColumns());
+    const existingWishesMap = {};
+    if (sheetWishes.getLastRow() > 1) {
+      const existingData = sheetWishes.getRange(2, 1, sheetWishes.getLastRow() - 1, 6).getValues();
+      existingData.forEach(function(r) {
+        if (r[0]) existingWishesMap[String(r[0])] = r;
+      });
     }
 
-    sheetWishes.getRange(1, 1, 1, wishHeaders.length).setValues([wishHeaders]);
-    sheetWishes.getRange(1, 1, 1, wishHeaders.length)
-      .setFontWeight("bold")
-      .setBackground("#65001D")
-      .setFontColor("#FFFFFF");
-
-    const lastRowWishes = sheetWishes.getLastRow();
-    if (lastRowWishes > 1) {
-      sheetWishes.getRange(2, 1, lastRowWishes - 1, wishHeaders.length).clearContent();
-    }
-
-    const wishRows = data.wishes.map(function(w) {
-      return [
-        w.id || "",
-        w.name || "",
-        w.relationship || "Bạn bè",
-        w.message || "",
-        w.createdAt || "",
-        w.isApproved ? "Hiển thị" : "Ẩn"
-      ];
+    data.wishes.forEach(function(w) {
+      if (w.id && !existingWishesMap[String(w.id)]) {
+        existingWishesMap[String(w.id)] = [
+          w.id,
+          w.name || "",
+          w.relationship || "Bạn bè",
+          w.message || "",
+          w.createdAt || "",
+          w.isApproved ? "Hiển thị" : "Ẩn"
+        ];
+      }
     });
 
+    const wishRows = Object.values(existingWishesMap);
     if (wishRows.length > 0) {
       sheetWishes.getRange(2, 1, wishRows.length, wishHeaders.length).setValues(wishRows);
     }
@@ -610,23 +1090,28 @@ function handleGetData(e) {
 
   result.guests = [].concat(result.groomGuests, result.brideGuests);
 
-  // 3. Đọc Lời Chúc
+  // 3. Đọc Lời Chúc (Sắp xếp mới nhất lên đầu)
   const sheetWishes = ss.getSheetByName(SHEET_WISHES_NAME);
   if (sheetWishes && sheetWishes.getLastRow() > 1) {
     const dataWishes = sheetWishes.getRange(2, 1, sheetWishes.getLastRow() - 1, 6).getValues();
-    result.wishes = dataWishes.map(function(r, idx) {
+    const wishList = [];
+    for (let idx = 0; idx < dataWishes.length; idx++) {
+      const r = dataWishes[idx];
       const name = String(r[1] || "").trim();
       const message = String(r[3] || "").trim();
-      if (!name && !message) return null;
-      return {
+      if (!name && !message) continue;
+
+      wishList.push({
         id: r[0] || ("wish_sheet_" + (idx + 1)),
         name: name || "Người ẩn danh",
         relationship: String(r[2] || "Bạn bè").trim(),
         message: message,
         createdAt: r[4] ? String(r[4]) : new Date().toISOString(),
         isApproved: String(r[5] || "").toLowerCase().includes("hiển thị") || r[5] === true || r[5] === 1
-      };
-    }).filter(Boolean);
+      });
+    }
+    wishList.reverse();
+    result.wishes = wishList;
   }
 
   return createJsonResponse(result);

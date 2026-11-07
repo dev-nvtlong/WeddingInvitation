@@ -1,5 +1,4 @@
 import type { Guest, WishItem, AdminStats, GoogleSheetsConfig, WeddingSide, PartyDetailedStats, SingleEventStat } from "../types/guestManagement.ts";
-import { weddingData } from "../data/weddingData.ts";
 import { getGuestInvitationUrl } from "../utils/guestList.ts";
 import { escapeCSV, parseCSV } from "../utils/csv.ts";
 
@@ -418,21 +417,24 @@ export function calculateAdminStats(): AdminStats {
 
 export function getWishes(): WishItem[] {
   if (typeof window === "undefined") {
-    return weddingData.defaultWishes.map((w) => ({ ...w, isApproved: true }));
+    return [];
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY_WISHES);
     if (!raw) {
-      const initial = weddingData.defaultWishes.map((w) => ({ ...w, isApproved: true }));
-      localStorage.setItem(STORAGE_KEY_WISHES, JSON.stringify(initial));
-      return initial;
+      return [];
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // Loại bỏ các lời chúc mẫu ảo trước đây (nếu có trong localStorage)
-    const cleaned = parsed.filter(
-      (w) => !(typeof w.id === "number" && w.id >= 1 && w.id <= 6 && ["Huy", "Chanh", "Chính", "Linh", "Tuấn Dịu", "Hiền Châm"].includes(w.name))
-    );
+    // Loại bỏ triệt để các lời chúc mẫu ảo hoặc dữ liệu test cũ
+    const cleaned = parsed.filter((w) => {
+      if (!w) return false;
+      const msg = w.message || w.content || "";
+      if (!w.name || !msg) return false;
+      if (typeof w.id === "number" && w.id >= 1 && w.id <= 6) return false;
+      if (["Huy", "Chanh", "Chính", "Linh", "Tuấn Dịu", "Hiền Châm"].includes(w.name)) return false;
+      return true;
+    });
     if (cleaned.length !== parsed.length) {
       saveWishes(cleaned);
     }
@@ -440,6 +442,15 @@ export function getWishes(): WishItem[] {
   } catch (err) {
     console.error("Lỗi khi đọc sổ lời chúc:", err);
     return [];
+  }
+}
+
+export function clearLocalWishes(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(STORAGE_KEY_WISHES);
+  } catch {
+    // ignore
   }
 }
 

@@ -2,16 +2,16 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Heart,
-  MessageCircleHeart,
+  MessageCircle,
   Send,
   X,
+  Sparkles,
   Eye,
   EyeOff,
-  Sparkles,
 } from "lucide-react";
-import type { Guest, WishItem } from "../types/guestManagement";
-import { getWishes, addWish } from "../services/guestStorage";
-import WishModal from "./WishModal";
+import type { Guest, WishItem } from "../types/guestManagement.ts";
+import { sendWishToGoogleSheets, useWishesSync } from "../services/googleSheetsService.ts";
+import WishModal from "./WishModal.tsx";
 
 interface LiveStreamFloatingWishesProps {
   currentGuest?: Guest;
@@ -45,15 +45,13 @@ export default function LiveStreamFloatingWishes({
   // Trạng thái bật/tắt hiển thị luồng livestream trên toàn bộ mặt thiệp
   const [isVisible, setIsVisible] = useState(true);
 
-  // Danh sách lời chúc thực tế từ cơ sở dữ liệu
-  const [wishes, setWishes] = useState<WishItem[]>(() => {
-    const list = getWishes();
-    return list.filter((w) => w.isApproved !== false);
-  });
+  // Đồng bộ danh sách lời chúc real-time với Google Sheets
+  const { wishes, setWishes } = useWishesSync();
 
   // Hàng đợi các bong bóng chat đang hiển thị trong luồng livestream (3-4 bong bóng)
   const [streamQueue, setStreamQueue] = useState<WishItem[]>([]);
   const nextWishIndexRef = useRef<number>(0);
+  const prevTopWishId = useRef<string | number | null>(null);
 
   // Bộ đếm lượt bắn tim
   const [likeCount, setLikeCount] = useState<number>(() => {
@@ -73,6 +71,7 @@ export default function LiveStreamFloatingWishes({
   );
   const [wishContent, setWishContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
     if (currentGuest?.fullName) {
@@ -84,29 +83,42 @@ export default function LiveStreamFloatingWishes({
 
   // Khởi tạo luồng chat ban đầu
   useEffect(() => {
-    if (wishes.length === 0) return;
-    const initialItems = wishes.slice(0, 3);
+    if (wishes.length === 0) {
+      setStreamQueue([]);
+      return;
+    }
+    const countToDisplay = Math.min(3, wishes.length);
+    const initialItems = wishes.slice(0, countToDisplay);
     setStreamQueue(initialItems);
-    nextWishIndexRef.current = initialItems.length % wishes.length;
+    nextWishIndexRef.current = countToDisplay % wishes.length;
   }, [wishes.length]);
 
-  // Luân phiên đẩy lời chúc mới vào luồng livestream như phòng live trực tiếp
+  // Đưa ngay lời chúc mới nhất từ Google Sheets vào luồng livestream
   useEffect(() => {
     if (wishes.length === 0) return;
+    const topWish = wishes[0];
+    if (topWish && prevTopWishId.current !== null && prevTopWishId.current !== topWish.id) {
+      setStreamQueue((prev) => [...prev.slice(-3), topWish]);
+    }
+    prevTopWishId.current = topWish ? topWish.id : null;
+  }, [wishes]);
+
+  // Luân phiên đẩy lời chúc mới vào luồng livestream nếu có từ 2 lời chúc trở lên
+  useEffect(() => {
+    if (wishes.length <= 1) return;
 
     const timer = setInterval(() => {
       const nextWish = wishes[nextWishIndexRef.current % wishes.length];
       nextWishIndexRef.current = (nextWishIndexRef.current + 1) % wishes.length;
 
       setStreamQueue((prev) => {
-        // Giữ tối đa 4 lời chúc trong luồng, lời chúc mới xuất hiện ở dưới
         const updated = [...prev, nextWish];
-        if (updated.length > 4) {
-          return updated.slice(updated.length - 4);
+        if (updated.length > 3) {
+          return updated.slice(updated.length - 3);
         }
         return updated;
       });
-    }, 3600); // 3.6s trôi lên 1 lời chúc mới
+    }, 4200);
 
     return () => clearInterval(timer);
   }, [wishes]);
@@ -146,14 +158,16 @@ export default function LiveStreamFloatingWishes({
     }, 2000);
   };
 
-  // Xử lý gửi lời chúc mới
-  const handleSubmitWish = (e: React.FormEvent) => {
+  // Xử lý gửi lời chúc mới trực tiếp lên Google Sheets
+  const handleSubmitWish = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!senderName.trim() || !wishContent.trim()) return;
 
     setIsSubmitting(true);
+    setSubmitError("");
+
     try {
-      const created = addWish({
+      const result = await sendWishToGoogleSheets({
         name: senderName.trim(),
         relationship: currentGuest?.group || "Bạn bè",
         message: wishContent.trim(),
@@ -161,16 +175,22 @@ export default function LiveStreamFloatingWishes({
         guestId: currentGuest?.id,
       });
 
+      if (!result.success || !result.wish) {
+        setSubmitError(result.message || "Gửi lời chúc thất bại. Dữ liệu chưa thể lưu vào Google Sheets!");
+        return;
+      }
+
+      const created = result.wish;
+
       // Cập nhật danh sách và đưa thẳng vào luồng livestream
-      const updatedWishes = [created, ...wishes];
-      setWishes(updatedWishes);
+      setWishes((prev) => [created, ...prev.filter((w) => w.id !== created.id)]);
       setStreamQueue((prev) => [...prev.slice(-3), created]);
 
       handleHeartBurst();
       setWishContent("");
       setIsModalOpen(false);
-    } catch (err) {
-      console.error("Lỗi gửi lời chúc:", err);
+    } catch (err: any) {
+      setSubmitError(err.message || "Đã xảy ra lỗi khi gửi lời chúc tới Google Sheets!");
     } finally {
       setIsSubmitting(false);
     }
@@ -209,29 +229,34 @@ export default function LiveStreamFloatingWishes({
                         opacity: 1,
                         y: 0,
                         scale: 1,
-                        transition: { duration: 0.45, ease: "easeOut" },
+                        transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] },
                       }}
                       exit={{
                         opacity: 0,
                         y: -18,
-                        scale: 0.94,
-                        transition: { duration: 0.35, ease: "easeIn" },
+                        scale: 0.92,
+                        transition: { duration: 0.35 },
                       }}
-                      className="global-livestream-bubble-item"
+                      className="livestream-bubble-item translucent-stream-bubble"
                     >
-                      {/* Nền hồng kem nhạt bán trong suốt không che mất nội dung thiệp */}
-                      <div className="translucent-stream-bubble">
-                        <span className="bubble-stream-avatar">
-                          {initialChar}
-                        </span>
-                        <div className="bubble-stream-text-wrap">
-                          <strong className="bubble-stream-author">
-                            {item.name}:
-                          </strong>{" "}
-                          <span className="bubble-stream-body">
-                            {item.message}
-                          </span>
+                      <div className="livestream-user-avatar">
+                        <span>{initialChar}</span>
+                      </div>
+                      <div className="livestream-bubble-content">
+                        <div className="bubble-top-meta">
+                          <strong className="bubble-guest-name">
+                            {item.name}
+                          </strong>
+                          {item.relationship && (
+                            <span className="bubble-guest-role">
+                              • {item.relationship}
+                            </span>
+                          )}
                         </div>
+                        <p className="bubble-guest-msg">{item.message}</p>
+                      </div>
+                      <div className="bubble-stream-heart">
+                        <Heart size={11} fill="#FF6B8B" color="#FF6B8B" />
                       </div>
                     </motion.div>
                   );
@@ -242,63 +267,26 @@ export default function LiveStreamFloatingWishes({
         )}
       </AnimatePresence>
 
-      {/* 2. THANH CÔNG CỤ TƯƠNG TÁC NỔI CỦA LIVESTREAM */}
-      <div className="global-livestream-floating-actions">
-        {/* Nút Ẩn / Hiện luồng chat */}
-        <button
-          type="button"
-          className="btn-toggle-stream-visibility"
-          onClick={() => setIsVisible(!isVisible)}
-          title={isVisible ? "Ẩn luồng lời chúc" : "Hiện luồng lời chúc"}
-        >
-          {isVisible ? <EyeOff size={16} /> : <Eye size={16} />}
-        </button>
-
-        {/* Nút Mở modal gửi lời chúc */}
-        <button
-          type="button"
-          className="btn-floating-send-wish"
-          onClick={() => setIsModalOpen(true)}
-          title="Gửi lời chúc mừng"
-        >
-          <MessageCircleHeart size={17} className="icon-send-heart" />
-          <span className="btn-label-text">Gửi lời chúc</span>
-        </button>
-
-        {/* Nút Bắn tim kèm bộ đếm */}
-        <button
-          type="button"
-          className="btn-floating-burst-heart"
-          onClick={handleHeartBurst}
-          title="Bắn tim chúc mừng"
-        >
-          <Heart size={18} fill="#FF6B8B" color="#FF6B8B" className="icon-burst" />
-          <span className="counter-num">
-            {likeCount.toLocaleString("vi-VN")}
-          </span>
-        </button>
-      </div>
-
-      {/* 3. LỚP HẠT TIM BAY LÊN KHẮP TOÀN BỘ MẶT THIỆP */}
-      <div className="global-floating-hearts-layer">
+      {/* 2. CHÙM TIM BAY TOÀN MÀN HÌNH */}
+      <div className="global-livestream-hearts-container" aria-hidden="true">
         <AnimatePresence>
           {floatingHearts.map((h) => (
             <motion.div
               key={h.id}
-              className="screen-heart-particle"
+              className="livestream-floating-heart"
               style={{
-                right: `calc(28px + ${h.x}px)`,
-                bottom: `calc(96px + ${h.yOffset}px)`,
+                position: "absolute",
+                right: `calc(24px + ${h.x}px)`,
+                bottom: `calc(80px + ${h.yOffset}px)`,
                 color: h.color,
                 fontSize: `${20 * h.scale}px`,
               }}
               initial={{ opacity: 1, y: 0, scale: 0.6 }}
               animate={{
-                opacity: [1, 0.95, 0],
-                y: -360 - Math.random() * 140,
-                x: h.x * 2.2,
-                scale: [0.6, 1.25, 0.95],
-                rotate: [0, (Math.random() - 0.5) * 45],
+                opacity: [1, 0.9, 0],
+                y: -320,
+                x: h.x * 1.6,
+                scale: [0.6, 1.25, 1],
               }}
               exit={{ opacity: 0 }}
               transition={{ duration: 1.8, ease: "easeOut" }}
@@ -309,7 +297,49 @@ export default function LiveStreamFloatingWishes({
         </AnimatePresence>
       </div>
 
-      {/* 4. MODAL NHẬP LỜI CHÚC NHANH */}
+      {/* 3. THANH ĐIỀU KHIỂN FLOATING TƯƠNG TÁC (GÓC DƯỚI BÊN PHẢI) */}
+      <div className="global-livestream-floating-actions global-livestream-action-dock">
+        <button
+          type="button"
+          className="btn-floating-burst-heart dock-btn-heart-burst"
+          onClick={handleHeartBurst}
+          title="Thả tim chúc mừng cô dâu & chú rể"
+          aria-label="Thả tim chúc mừng"
+        >
+          <Heart size={20} className="icon-burst icon-dock-heart" fill="#E24B5C" color="#E24B5C" />
+          <span className="dock-count-badge">
+            {likeCount > 999
+              ? `${(likeCount / 1000).toFixed(1)}k`
+              : likeCount}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className="btn-floating-send-wish dock-btn-open-wish"
+          onClick={() => {
+            setIsModalOpen(true);
+            setSubmitError("");
+          }}
+          title="Gửi lời chúc mừng"
+          aria-label="Gửi lời chúc mừng"
+        >
+          <MessageCircle size={19} className="icon-send-heart" />
+          <span className="btn-label-text dock-label-text">Gửi lời chúc</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn-toggle-stream-visibility dock-btn-toggle-visibility"
+          onClick={() => setIsVisible(!isVisible)}
+          title={isVisible ? "Ẩn luồng lời chúc livestream" : "Hiện luồng lời chúc livestream"}
+          aria-label={isVisible ? "Ẩn luồng lời chúc" : "Hiện luồng lời chúc"}
+        >
+          {isVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
+
+      {/* 4. MODAL GỬI LỜI CHÚC LIVESTREAM */}
       <WishModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
         <motion.div
           className="wish-modal-dialog"
@@ -320,8 +350,8 @@ export default function LiveStreamFloatingWishes({
         >
           <div className="wish-modal-header">
             <div className="modal-header-title-wrap">
-              <Heart size={20} className="icon-header-heart" fill="#FF6B8B" color="#FF6B8B" />
-              <h4>Gửi Lời Chúc Mừng</h4>
+              <Sparkles size={18} className="icon-header-heart" color="#C5A059" />
+              <h4>Gửi Lời Chúc Phúc</h4>
             </div>
             <button
               type="button"
@@ -334,7 +364,7 @@ export default function LiveStreamFloatingWishes({
           </div>
 
           <p className="modal-description-sub">
-            Lời chúc của bạn sẽ xuất hiện trực tiếp trên luồng livestream nổi khắp mặt thiệp cưới!
+            Lời chúc của bạn sẽ xuất hiện trên màn hình và lưu trực tiếp vào sổ lời chúc của hai gia đình!
           </p>
 
           <form onSubmit={handleSubmitWish} className="wish-modal-form">
@@ -343,6 +373,7 @@ export default function LiveStreamFloatingWishes({
               <input
                 type="text"
                 required
+                maxLength={100}
                 placeholder="Ví dụ: Anh Huy, Bạn Linh..."
                 value={senderName}
                 onChange={(e) => setSenderName(e.target.value)}
@@ -354,6 +385,7 @@ export default function LiveStreamFloatingWishes({
               <textarea
                 rows={3}
                 required
+                maxLength={1000}
                 placeholder="Nhập lời chúc ngọt ngào gửi đến cô dâu & chú rể..."
                 value={wishContent}
                 onChange={(e) => setWishContent(e.target.value)}
@@ -380,6 +412,25 @@ export default function LiveStreamFloatingWishes({
               </div>
             </div>
 
+            {/* Thông báo lỗi nếu gửi thất bại */}
+            {submitError && (
+              <div
+                style={{
+                  color: "#C02640",
+                  background: "#FFF0F3",
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  marginTop: "10px",
+                  border: "1px solid #FFD0DA",
+                  textAlign: "center",
+                  lineHeight: "1.4",
+                }}
+              >
+                {submitError}
+              </div>
+            )}
+
             <div className="modal-form-footer">
               <button
                 type="submit"
@@ -387,7 +438,7 @@ export default function LiveStreamFloatingWishes({
                 className="btn-submit-calendar-wish"
               >
                 <Send size={16} />
-                <span>{isSubmitting ? "Đang gửi..." : "GỬI LỜI CHÚC NGAY"}</span>
+                <span>{isSubmitting ? "Đang lưu vào Google Sheets..." : "GỬI LỜI CHÚC NGAY"}</span>
               </button>
             </div>
           </form>

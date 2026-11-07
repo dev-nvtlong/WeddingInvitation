@@ -7,10 +7,9 @@ import {
   MessageCircleHeart,
   Check,
 } from "lucide-react";
-import type { Guest, WishItem } from "../types/guestManagement";
-import { getWishes, addWish } from "../services/guestStorage";
-import { weddingData } from "../data/weddingData";
-import WishModal from "./WishModal";
+import type { Guest, WishItem } from "../types/guestManagement.ts";
+import { sendWishToGoogleSheets, useWishesSync } from "../services/googleSheetsService.ts";
+import WishModal from "./WishModal.tsx";
 
 interface FloatingCalendarWishesProps {
   currentGuest?: Guest;
@@ -48,11 +47,8 @@ export default function FloatingCalendarWishes({
   currentGuest,
   initialGuestName = "",
 }: FloatingCalendarWishesProps) {
-  // Danh sách lời chúc thực tế từ cơ sở dữ liệu
-  const [wishes, setWishes] = useState<WishItem[]>(() => {
-    const list = getWishes();
-    return list.filter((w) => w.isApproved !== false);
-  });
+  // Đồng bộ danh sách lời chúc real-time với Google Sheets
+  const { wishes, setWishes } = useWishesSync();
 
   // 4 vị trí hiển thị bong bóng lời chúc hiện tại trên lịch
   const [activeSlots, setActiveSlots] = useState<{
@@ -63,6 +59,7 @@ export default function FloatingCalendarWishes({
 
   const nextWishIndexRef = useRef<number>(0);
   const currentSlotIndexRef = useRef<number>(0);
+  const prevTopWishId = useRef<string | number | null>(null);
 
   // Bộ đếm lượt bắn tim
   const [likeCount, setLikeCount] = useState<number>(() => {
@@ -82,6 +79,7 @@ export default function FloatingCalendarWishes({
   );
   const [wishContent, setWishContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [successToast, setSuccessToast] = useState(false);
 
   // Cập nhật tên nếu có thông tin khách mời
@@ -93,33 +91,63 @@ export default function FloatingCalendarWishes({
     }
   }, [currentGuest, initialGuestName]);
 
-  // Khởi tạo 4 lời chúc đầu tiên vào 4 vị trí trên lịch
+  // Khởi tạo các lời chúc đầu tiên vào các vị trí trên lịch
   useEffect(() => {
-    if (wishes.length === 0) return;
+    if (wishes.length === 0) {
+      setActiveSlots([]);
+      return;
+    }
 
-    const initialSlots = LANES_CONFIG.map((_, idx) => {
-      const wish = wishes[idx % wishes.length];
+    // Hiển thị tối đa 4 slot tương ứng với số lời chúc thực tế (không lặp lại dữ liệu nếu ít hơn 4)
+    const countToDisplay = Math.min(LANES_CONFIG.length, wishes.length);
+    const initialSlots = LANES_CONFIG.slice(0, countToDisplay).map((_, idx) => {
+      const wish = wishes[idx];
       return {
         slotId: idx,
         wish,
-        key: `slot-${idx}-${wish.id}-${Date.now()}`,
+        key: `slot-${idx}-${wish.id}`,
       };
     });
 
     setActiveSlots(initialSlots);
-    nextWishIndexRef.current = initialSlots.length % wishes.length;
+    nextWishIndexRef.current = countToDisplay % wishes.length;
   }, [wishes.length]);
 
-  // Luân phiên thay đổi từng lời chúc lần lượt, nhẹ nhàng không giật lag
+  // Đưa ngay lời chúc mới nhất từ Google Sheets vào slot đầu tiên
   useEffect(() => {
     if (wishes.length === 0) return;
+    const topWish = wishes[0];
+    if (topWish && prevTopWishId.current !== null && prevTopWishId.current !== topWish.id) {
+      setActiveSlots((prev) => {
+        if (prev.length === 0) {
+          return [{
+            slotId: 0,
+            wish: topWish,
+            key: `slot-new-${topWish.id}-${Date.now()}`,
+          }];
+        }
+        const next = [...prev];
+        next[0] = {
+          slotId: 0,
+          wish: topWish,
+          key: `slot-new-${topWish.id}-${Date.now()}`,
+        };
+        return next;
+      });
+    }
+    prevTopWishId.current = topWish ? topWish.id : null;
+  }, [wishes]);
+
+  // Luân phiên thay đổi từng lời chúc lần lượt nếu có nhiều lời chúc hơn số slot
+  useEffect(() => {
+    if (wishes.length <= LANES_CONFIG.length) return;
 
     const timer = setInterval(() => {
       setActiveSlots((prev) => {
         if (prev.length === 0) return prev;
 
-        const slotToUpdate = currentSlotIndexRef.current;
-        currentSlotIndexRef.current = (slotToUpdate + 1) % LANES_CONFIG.length;
+        const slotToUpdate = currentSlotIndexRef.current % prev.length;
+        currentSlotIndexRef.current = (slotToUpdate + 1) % prev.length;
 
         const nextWish = wishes[nextWishIndexRef.current % wishes.length];
         nextWishIndexRef.current =
@@ -134,15 +162,15 @@ export default function FloatingCalendarWishes({
 
         return updated;
       });
-    }, 3400); // Mỗi 3.4 giây đổi 1 vị trí -> Các bong bóng khác vẫn đứng yên và đọc rõ ràng
+    }, 4500);
 
     return () => clearInterval(timer);
   }, [wishes]);
 
-  // Xử lý bắn tim (có throttle chống spam làm lag trình duyệt)
+  // Hiệu ứng Bắn tim chúc mừng
   const handleHeartBurst = () => {
     const now = Date.now();
-    if (now - lastHeartBurstTime.current < 140) return; // giới hạn 140ms
+    if (now - lastHeartBurstTime.current < 140) return;
     lastHeartBurstTime.current = now;
 
     const newCount = likeCount + 1;
@@ -168,20 +196,21 @@ export default function FloatingCalendarWishes({
 
     setFloatingHearts((prev) => [...prev, ...newHearts]);
 
-    // Xoá bớt hạt tim cũ sau khi bay xong
     setTimeout(() => {
       setFloatingHearts((prev) => prev.filter((h) => !newHearts.includes(h)));
     }, 1800);
   };
 
-  // Xử lý gửi lời chúc mới
-  const handleSubmitWish = (e: React.FormEvent) => {
+  // Xử lý gửi lời chúc mới trực tiếp lên Google Sheets
+  const handleSubmitWish = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!senderName.trim() || !wishContent.trim()) return;
 
     setIsSubmitting(true);
+    setSubmitError("");
+
     try {
-      const created = addWish({
+      const result = await sendWishToGoogleSheets({
         name: senderName.trim(),
         relationship: currentGuest?.group || "Bạn bè",
         message: wishContent.trim(),
@@ -189,11 +218,17 @@ export default function FloatingCalendarWishes({
         guestId: currentGuest?.id,
       });
 
-      // Thêm vào danh sách lời chúc hiển thị
-      const updatedWishes = [created, ...wishes];
-      setWishes(updatedWishes);
+      if (!result.success || !result.wish) {
+        setSubmitError(result.message || "Gửi lời chúc thất bại. Dữ liệu chưa thể lưu vào Google Sheets!");
+        return;
+      }
 
-      // Đưa ngay lời chúc mới vào vị trí đầu tiên trên lịch để khách nhìn thấy ngay lập tức
+      const created = result.wish;
+
+      // Cập nhật danh sách lời chúc hiển thị
+      setWishes((prev) => [created, ...prev.filter((w) => w.id !== created.id)]);
+
+      // Đưa ngay lời chúc mới vào vị trí đầu tiên trên lịch để khách nhìn thấy ngay
       setActiveSlots((prev) => {
         const next = [...prev];
         next[0] = {
@@ -211,15 +246,14 @@ export default function FloatingCalendarWishes({
       setIsModalOpen(false);
       setSuccessToast(true);
       setTimeout(() => setSuccessToast(false), 4500);
-    } catch (err) {
-      console.error("Lỗi khi gửi lời chúc:", err);
+    } catch (err: any) {
+      setSubmitError(err.message || "Đã xảy ra lỗi khi gửi lời chúc tới Google Sheets!");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Cấu hình dữ liệu ngày cho lịch
-  // Tháng 11/2026: 30 ngày, ngày 1 là Chủ Nhật (CN)
+  // Cấu hình dữ liệu ngày cho lịch tháng 11/2026
   const novDays: (number | null)[] = [
     null, null, null, null, null, null, 1,
     2, 3, 4, 5, 6, 7, 8,
@@ -229,49 +263,61 @@ export default function FloatingCalendarWishes({
     30, null, null, null, null, null, null,
   ];
 
-  const currentDays = novDays;
-  const eventLabel = "NGÀY CHUNG ĐÔI (13 & 14.11.2026)";
-
   return (
-    <div className="floating-calendar-module">
-      {/* Thông báo gửi lời chúc thành công */}
+    <div className="floating-calendar-module floating-calendar-wishes-wrapper">
+      {/* Toast thông báo gửi thành công */}
       <AnimatePresence>
         {successToast && (
           <motion.div
-            className="calendar-success-toast"
-            initial={{ opacity: 0, y: -20, scale: 0.9 }}
+            className="wish-success-toast"
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.9 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ duration: 0.3 }}
           >
-            <Check size={18} className="toast-icon" />
-            <span>Cảm ơn bạn! Lời chúc đã xuất hiện trực tiếp trên lịch cưới.</span>
+            <Check size={18} className="toast-check-icon" />
+            <div className="toast-content">
+              <strong>Gửi lời chúc thành công!</strong>
+              <p>Lời chúc của bạn đã được lưu vào Google Sheets & hiển thị trực tiếp.</p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* KHUNG LỊCH CƯỚI NỀN TRẮNG CHỨA LỜI CHÚC NỔI */}
-      <div className="calendar-card-container">
-        {/* 1. Header Lịch cưới */}
+      {/* NÚT GỬI LỜI CHÚC MỪNG Ở TRÊN LỊCH */}
+      <div className="top-wish-action-bar">
+        <button
+          type="button"
+          className="btn-send-wish-top"
+          onClick={() => {
+            setIsModalOpen(true);
+            setSubmitError("");
+          }}
+          aria-label="Gửi lời chúc mừng tới cô dâu & chú rể"
+        >
+          <MessageCircleHeart size={19} />
+          <span>GỬI LỜI CHÚC MỪNG</span>
+        </button>
+      </div>
+
+      <div className="calendar-card-container calendar-with-wishes-card">
+        {/* 1. KHUNG LỊCH ĐÁM CƯỚI TRANG TRỌNG */}
         <div className="calendar-card-header">
           <div className="calendar-month-selector">
-            <div className="calendar-title-box" style={{ textAlign: "center", width: "100%" }}>
-              <h3 className="calendar-month-heading">
-                THÁNG 11 / 2026
-              </h3>
-              <p className="calendar-event-sublabel">{eventLabel}</p>
+            <div className="calendar-title-box">
+              <h3 className="calendar-month-heading">THÁNG 11 / 2026</h3>
+              <span className="calendar-event-sublabel">LỄ THÀNH HÔN & VU QUY</span>
             </div>
           </div>
 
           <div className="calendar-couple-subtext">
-            <span>{weddingData.groom.shortName}</span>
+            <span>Việt Long</span>
             <span className="heart-sep">❤</span>
-            <span>{weddingData.bride.shortName}</span>
+            <span>Thanh Tới</span>
           </div>
         </div>
 
-        {/* 2. KHU VỰC LƯỚI LỊCH (LỜI CHÚC NỔI TRỰC TIẾP TRÊN CÁC NGÀY) */}
         <div className="calendar-grid-wrapper">
-          {/* Lưới các thứ trong tuần */}
           <div className="calendar-weekdays-row">
             <span>T2</span>
             <span>T3</span>
@@ -282,27 +328,34 @@ export default function FloatingCalendarWishes({
             <span className="sunday">CN</span>
           </div>
 
-          {/* Lưới các ngày trong tháng */}
           <div className="calendar-days-grid">
-            {currentDays.map((dayNum, i) => {
+            {novDays.map((dayNum, i) => {
               if (dayNum === null) {
                 return <div key={`empty-${i}`} className="calendar-day-cell empty" />;
               }
 
-              const isHighlight = dayNum === 13 || dayNum === 14;
-              const isSunday = i % 7 === 6;
+              const isMainWeddingDay = dayNum === 14;
+              const isFamilyDinnerDay = dayNum === 13;
+              const isSunday = (i % 7) === 6;
 
               return (
                 <div
-                  key={`day-${dayNum}-${i}`}
-                  className={`calendar-day-cell ${isHighlight ? "highlight-day" : ""} ${
+                  key={`day-${dayNum}`}
+                  className={`calendar-day-cell ${
+                    isMainWeddingDay ? "highlight-day" : ""
+                  } ${isFamilyDinnerDay ? "highlight-dinner-day" : ""} ${
                     isSunday ? "sunday-cell" : ""
                   }`}
                 >
-                  {isHighlight ? (
+                  {isMainWeddingDay ? (
                     <div className="highlight-badge-wrap">
-                      <span className="day-number highlight-number">{dayNum}</span>
+                      <span className="highlight-number">{dayNum}</span>
                       <Heart size={14} className="highlight-heart-icon" />
+                    </div>
+                  ) : isFamilyDinnerDay ? (
+                    <div className="dinner-badge-wrap">
+                      <span className="day-number">{dayNum}</span>
+                      <span className="dinner-dot-indicator" title="Bữa Cơm Thân Mật" />
                     </div>
                   ) : (
                     <span className="day-number">{dayNum}</span>
@@ -312,71 +365,111 @@ export default function FloatingCalendarWishes({
             })}
           </div>
 
-          {/* LỚP BONG BÓNG LỜI CHÚC NỔI TRỰC TIẾP (FLOATING LIVE WISHES OVERLAY) */}
-          <div className="floating-wishes-overlay-layer">
+          {/* 2. LỚP BONG BÓNG LỜI CHÚC NỔI TRỰC TIẾP TRÊN MẶT LỊCH (NỀN HỒNG KEM NHẠT TRONG SUỐT) */}
+        <div className="floating-wishes-overlay-layer">
+          <div className="wishes-bubbles-container">
             <AnimatePresence mode="popLayout">
               {activeSlots.map((slot) => {
                 const lane = LANES_CONFIG[slot.slotId] || LANES_CONFIG[0];
-                const senderInitial = (slot.wish.name || "K").trim().charAt(0).toUpperCase();
+                const wish = slot.wish;
 
-                const stylePosition: React.CSSProperties = {
-                  top: lane.top,
-                  maxWidth: lane.maxWidth,
-                  ...(lane.align === "left"
-                    ? { left: lane.offset }
-                    : { right: lane.offset }),
-                };
+                const nameParts = (wish.name || "Khách").trim().split(" ");
+                const shortName = nameParts.slice(-2).join(" ");
+                const avatarLetter = (wish.name || "K")
+                  .trim()
+                  .charAt(0)
+                  .toUpperCase();
+
+                const isAlignLeft = lane.align === "left";
 
                 return (
                   <motion.div
                     key={slot.key}
-                    style={stylePosition}
-                    className="floating-wish-bubble-item"
+                    className="floating-wish-bubble pastel-wish-bubble"
+                    style={{
+                      top: lane.top,
+                      left: isAlignLeft ? lane.offset : "auto",
+                      right: !isAlignLeft ? lane.offset : "auto",
+                      maxWidth: lane.maxWidth,
+                    }}
                     initial={{
                       opacity: 0,
-                      x: lane.align === "left" ? -24 : 24,
-                      scale: 0.92,
+                      scale: 0.85,
+                      y: 12,
                     }}
                     animate={{
                       opacity: 1,
-                      x: 0,
                       scale: 1,
-                      transition: { duration: 0.6, ease: "easeOut" },
+                      y: 0,
                     }}
                     exit={{
                       opacity: 0,
-                      x: lane.align === "left" ? 18 : -18,
-                      scale: 0.94,
-                      transition: { duration: 0.5, ease: "easeIn" },
+                      scale: 0.88,
+                      y: -12,
+                    }}
+                    transition={{
+                      duration: 0.55,
+                      ease: [0.22, 1, 0.36, 1],
                     }}
                   >
-                    {/* Bong bóng hồng pastel #F4B8BE bo tròn hai đầu */}
-                    <div className="pastel-wish-bubble">
-                      <span className="bubble-avatar">{senderInitial}</span>
-                      <span className="bubble-content-text">
-                        <strong className="bubble-sender-name">
-                          {slot.wish.name}:
-                        </strong>{" "}
-                        <span className="bubble-msg-body">
-                          {slot.wish.message}
-                        </span>
-                      </span>
+                    <div className="bubble-avatar-badge">
+                      <span>{avatarLetter}</span>
+                    </div>
+
+                    <div className="bubble-content-text">
+                      <div className="bubble-author-row">
+                        <span className="bubble-sender-name">{shortName}</span>
+                        {wish.relationship && (
+                          <span className="bubble-sender-rel">
+                            • {wish.relationship}
+                          </span>
+                        )}
+                      </div>
+                      <p className="bubble-message-body">{wish.message}</p>
+                    </div>
+
+                    <div className="bubble-heart-sparkle">
+                      <Heart size={11} fill="#FF6B8B" color="#FF6B8B" />
                     </div>
                   </motion.div>
                 );
               })}
-            </AnimatePresence>
-          </div>
 
-          {/* HIỆU ỨNG TRÁI TIM BAY LÊN KHI NHẤN BẮN TIM */}
-          <div className="floating-hearts-burst-container">
+              {activeSlots.length === 0 && (
+                <motion.div
+                  key="empty-invite"
+                  className="floating-wish-bubble pastel-wish-bubble empty-invite-bubble"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  style={{
+                    top: "48%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    maxWidth: "88%",
+                  }}
+                >
+                  <div className="bubble-avatar-badge">
+                    <Heart size={11} fill="#FFFFFF" color="#FFFFFF" />
+                  </div>
+                  <div className="bubble-content-text">
+                    <p className="bubble-message-body" style={{ fontStyle: "italic" }}>
+                      Hãy là người đầu tiên gửi lời chúc tới cô dâu & chú rể! ✨
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* HẠT TIM BAY LÊN KHI NHẤN NÚT BẮN TIM */}
             <AnimatePresence>
               {floatingHearts.map((h) => (
                 <motion.div
                   key={h.id}
-                  className="heart-particle"
+                  className="flying-floating-heart"
                   style={{
-                    right: `calc(40px + ${h.x}px)`,
+                    position: "absolute",
+                    right: `calc(50% + ${h.x}px)`,
                     bottom: "20px",
                     color: h.color,
                     fontSize: `${18 * h.scale}px`,
@@ -384,7 +477,7 @@ export default function FloatingCalendarWishes({
                   initial={{ opacity: 1, y: 0, scale: 0.6 }}
                   animate={{
                     opacity: [1, 0.9, 0],
-                    y: -220 - Math.random() * 80,
+                    y: -260,
                     x: h.x * 1.5,
                     scale: [0.6, 1.2, 1],
                   }}
@@ -397,20 +490,31 @@ export default function FloatingCalendarWishes({
             </AnimatePresence>
           </div>
         </div>
+      </div>
 
-        {/* 3. THANH TƯƠNG TÁC PHÍA DƯỚI LỊCH */}
-        <div className="calendar-interactive-bottom-bar">
-          {/* Nút "Gửi lời chúc..." mở modal */}
+      {/* 3. GHI CHÚ CHÚ THÍCH CÁC NGÀY ĐẶC BIỆT DƯỚI LỊCH */}
+      <div className="calendar-note-footer">
+        <span className="note-dot main" />
+        <span>14.11: Lễ Thành Hôn & Vu Quy</span>
+        <span className="note-divider">•</span>
+        <span className="note-dot sub" />
+        <span>13.11: Bữa Cơm Thân Mật</span>
+      </div>
+
+      {/* 4. THANH TƯƠNG TÁC PHÍA DƯỚI LỊCH */}
+      <div className="calendar-interactive-bottom-bar">
           <button
             type="button"
             className="btn-trigger-wish-input"
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              setIsModalOpen(true);
+              setSubmitError("");
+            }}
           >
             <MessageCircleHeart size={18} className="icon-wish-trigger" />
             <span className="text-wish-trigger">Gửi lời chúc...</span>
           </button>
 
-          {/* Nút Bắn tim kèm bộ đếm tương tác */}
           <button
             type="button"
             className="btn-heart-burst"
@@ -425,7 +529,7 @@ export default function FloatingCalendarWishes({
         </div>
       </div>
 
-      {/* CỬA SỔ NHẬP LỜI CHÚC (MODAL GỌI Ý NHANH) */}
+      {/* CỬA SỔ NHẬP LỜI CHÚC (MODAL GỢI Ý NHANH) */}
       <WishModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
         <motion.div
           className="wish-modal-dialog"
@@ -459,6 +563,7 @@ export default function FloatingCalendarWishes({
               <input
                 type="text"
                 required
+                maxLength={100}
                 placeholder="Ví dụ: Anh Huy, Bạn Linh..."
                 value={senderName}
                 onChange={(e) => setSenderName(e.target.value)}
@@ -470,6 +575,7 @@ export default function FloatingCalendarWishes({
               <textarea
                 rows={3}
                 required
+                maxLength={1000}
                 placeholder="Nhập lời chúc chân thành gửi tới cô dâu & chú rể..."
                 value={wishContent}
                 onChange={(e) => setWishContent(e.target.value)}
@@ -493,6 +599,25 @@ export default function FloatingCalendarWishes({
               </div>
             </div>
 
+            {/* Thông báo lỗi nếu gửi thất bại */}
+            {submitError && (
+              <div
+                style={{
+                  color: "#C02640",
+                  background: "#FFF0F3",
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  marginTop: "10px",
+                  border: "1px solid #FFD0DA",
+                  textAlign: "center",
+                  lineHeight: "1.4",
+                }}
+              >
+                {submitError}
+              </div>
+            )}
+
             <div className="modal-form-footer">
               <button
                 type="submit"
@@ -500,7 +625,7 @@ export default function FloatingCalendarWishes({
                 className="btn-submit-calendar-wish"
               >
                 <Send size={16} />
-                <span>{isSubmitting ? "Đang gửi..." : "GỬI LỜI CHÚC NGAY"}</span>
+                <span>{isSubmitting ? "Đang gửi lên Google Sheets..." : "GỬI LỜI CHÚC NGAY"}</span>
               </button>
             </div>
           </form>

@@ -80,11 +80,7 @@ export interface WeddingData {
     thanhHon: EventDetail;
     tiecMung: EventDetail;
   };
-  timeline: {
-    time: string;
-    title: string;
-    description: string;
-  }[];
+ 
   loveStory: LoveStoryItem[];
   dressCode: {
     title: string;
@@ -278,38 +274,7 @@ export const weddingData: WeddingData = {
       },
     },
   },
-  timeline: [
-    {
-      time: "04:30",
-      title: "Lễ Xuất Phát Rước Dâu",
-      description: "Đoàn nhà trai khởi hành sang tư gia nhà gái để chuẩn bị nghi thức đón dâu.",
-    },
-    {
-      time: "06:30",
-      title: "Nghi Thức Gia Tiên",
-      description: "Cô dâu chú rể thắp nén hương tri ân tổ tiên và nhận lời chúc phúc từ song thân phụ mẫu.",
-    },
-    {
-      time: "10:00",
-      title: "Đón Tiếp Quan Khách",
-      description: "Cô dâu chú rể chụp ảnh lưu niệm cùng bạn bè, người thân tại cổng hoa.",
-    },
-    {
-      time: "10:15",
-      title: "Khai Tiệc Mừng Hạnh Phúc",
-      description: "Nghi thức trao nhẫn, rót rượu champagne, cắt bánh cưới và nâng ly chúc mừng.",
-    },
-    {
-      time: "10:30",
-      title: "Giao Lưu Âm Nhạc & Trò Chơi",
-      description: "Những tiết mục văn nghệ đặc sắc từ bạn bè và người thân.",
-    },
-    {
-      time: "11:00",
-      title: "Tri Ân & Tiễn Khách",
-      description: "Gia đình cô dâu chú rể gửi lời cảm ơn sâu sắc và tiễn quan khách.",
-    },
-  ],
+  
   loveStory: [
     {
       year: "2019 – 2026",
