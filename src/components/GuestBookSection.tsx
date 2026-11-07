@@ -8,11 +8,16 @@ import FloatingCalendarWishes from "./FloatingCalendarWishes";
 interface GuestBookSectionProps {
   initialGuestName?: string;
   currentGuest?: Guest;
+  guestSide?: "groom" | "bride";
 }
 
 type RSVPStatusType = "attending" | "declined" | "maybe" | "";
 
-export default function GuestBookSection({ initialGuestName = "", currentGuest }: GuestBookSectionProps) {
+export default function GuestBookSection({
+  initialGuestName = "",
+  currentGuest,
+  guestSide,
+}: GuestBookSectionProps) {
   // Kiểm tra xem khách này đã thực sự từng gửi xác nhận chưa (không dùng key chung)
   const checkGuestSubmitted = (guest?: Guest): boolean => {
     if (typeof window === "undefined") return false;
@@ -59,7 +64,7 @@ export default function GuestBookSection({ initialGuestName = "", currentGuest }
   const [rsvpPhone, setRsvpPhone] = useState(currentGuest?.phone || "");
   const [rsvpStatus, setRsvpStatus] = useState<RSVPStatusType>(() => getInitialStatus(currentGuest));
   const [rsvpCount, setRsvpCount] = useState<number>(currentGuest?.expectedCount || 1);
-  const [rsvpSide, setRsvpSide] = useState<"groom" | "bride">(currentGuest?.side || "groom");
+  const [rsvpSide, setRsvpSide] = useState<"groom" | "bride">(currentGuest?.side || guestSide || "groom");
   const [rsvpNote, setRsvpNote] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [rsvpSubmitted, setRsvpSubmitted] = useState<boolean>(() => checkGuestSubmitted(currentGuest));
@@ -68,12 +73,14 @@ export default function GuestBookSection({ initialGuestName = "", currentGuest }
     if (currentGuest) {
       setRsvpName(currentGuest.fullName || "");
       if (currentGuest.phone) setRsvpPhone(currentGuest.phone);
-      setRsvpSide(currentGuest.side || "groom");
+      setRsvpSide(currentGuest.side || guestSide || "groom");
       if (currentGuest.expectedCount) setRsvpCount(currentGuest.expectedCount);
       setRsvpStatus(getInitialStatus(currentGuest));
       setRsvpSubmitted(checkGuestSubmitted(currentGuest));
+    } else if (guestSide) {
+      setRsvpSide(guestSide);
     }
-  }, [currentGuest]);
+  }, [currentGuest, guestSide]);
 
   const handleRsvpSubmit = (e: React.FormEvent) => {
     e.preventDefault();

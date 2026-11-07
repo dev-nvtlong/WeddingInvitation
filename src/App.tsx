@@ -17,8 +17,8 @@ import LiveStreamFloatingWishes from "./components/LiveStreamFloatingWishes";
 // Admin Module & Services
 import AdminDashboard from "./admin/AdminDashboard";
 import AdminLogin from "./admin/AdminLogin";
-import { isAdminAuthenticated, getGuestByCode } from "./services/guestStorage";
-import type { Guest } from "./types/guestManagement";
+import { isAdminAuthenticated } from "./services/guestStorage";
+import { useInvitationMode } from "./utils/invitationMode";
 import "./admin/admin.css";
 
 export default function App() {
@@ -41,40 +41,14 @@ export default function App() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  // Nhận diện khách mời cá nhân hóa qua URL
-  const [currentGuest] = useState<Guest | undefined>(() => {
-    if (typeof window === "undefined") return undefined;
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("g") || params.get("code");
-    if (code) {
-      return getGuestByCode(code);
-    }
-    const nameParam = params.get("guest") || params.get("to") || params.get("khach");
-    if (nameParam) {
-      return getGuestByCode(nameParam);
-    }
-    return undefined;
-  });
-
-  const [guestName] = useState<string>(() => {
-    if (currentGuest) return currentGuest.fullName;
-    if (typeof window === "undefined") return "";
-    const params = new URLSearchParams(window.location.search);
-    const guest = params.get("guest") || params.get("to") || params.get("khach");
-    return guest ? guest.trim() : "";
-  });
-
-  // Phân biệt chế độ xem của chủ sở hữu / ban tổ chức vs chế độ khách mời:
-  // - Chủ sở hữu: Đã đăng nhập quản trị (Admin), hoặc mở link thiệp gốc không có định danh khách mời (?g=...), hoặc có tham số mode=owner / owner=true
-  // - Khách mời: Mở thiệp qua link cá nhân hóa (?g=, ?code=, ?guest=...) và không đăng nhập phiên quản trị
-  const isOwnerMode = Boolean(
-    isAdminLoggedIn ||
-    (typeof window !== "undefined" && (
-      window.location.search.includes("mode=owner") ||
-      window.location.search.includes("owner=true") ||
-      (!currentGuest && !guestName)
-    ))
-  );
+  // Nguồn trạng thái duy nhất xác định chế độ xem thiệp (dùng chung cho cả desktop và mobile)
+  const {
+    isGuestView,
+    isOwnerView,
+    guestSide,
+    guestName,
+    currentGuest,
+  } = useInvitationMode();
 
   const [isOpened, setIsOpened] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -129,6 +103,7 @@ export default function App() {
       <main className={`wedding-main-container ${isOpened ? "opened" : "blurred"}`}>
         <HeroSection
           guestName={guestName}
+          guestSide={guestSide}
           onOpenShareModal={() => setIsShareModalOpen(true)}
         />
 
@@ -136,11 +111,19 @@ export default function App() {
 
         <LoveStorySection />
 
-        <CeremonySection currentGuest={currentGuest} />
+        <CeremonySection
+          currentGuest={currentGuest}
+          isGuestView={isGuestView}
+          guestSide={guestSide}
+        />
 
         <GallerySection />
 
-        <GuestBookSection initialGuestName={guestName} currentGuest={currentGuest} />
+        <GuestBookSection
+          initialGuestName={guestName}
+          currentGuest={currentGuest}
+          guestSide={guestSide}
+        />
 
         <GiftSection />
 
@@ -159,7 +142,7 @@ export default function App() {
       {isOpened && (
         <Navigation
           onOpenShareModal={() => setIsShareModalOpen(true)}
-          showShareButton={isOwnerMode}
+          showShareButton={isOwnerView}
         />
       )}
 

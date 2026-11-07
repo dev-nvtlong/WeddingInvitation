@@ -19,11 +19,29 @@ export function getGuestRSVPStatus(guest: Guest): RSVPStatus {
   return "pending";
 }
 
-export function getGuestInvitationUrl(code: string): string {
-  const url = new URL(window.location.href);
+export function getGuestInvitationUrl(
+  code: string,
+  side?: "groom" | "bride",
+  guestName?: string,
+  guestId?: string,
+  eventIds?: string[]
+): string {
+  const url = new URL(typeof window !== "undefined" ? window.location.href : "https://wedding.local");
   url.pathname = url.pathname.replace(/\/admin\/?$/, "/");
   url.search = "";
   url.hash = "";
   url.searchParams.set("g", code);
+  if (side) {
+    url.searchParams.set("side", side);
+  }
+  if (guestName) {
+    url.searchParams.set("guest", guestName);
+  }
+  if (guestId) {
+    url.searchParams.set("id", guestId);
+  }
+  if (eventIds && eventIds.length > 0) {
+    url.searchParams.set("events", eventIds.join(","));
+  }
   return url.toString();
 }

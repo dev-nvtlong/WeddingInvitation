@@ -16,7 +16,7 @@ export default function QRModal({ guest, isOpen, onClose }: QRModalProps) {
 
   if (!isOpen || !guest) return null;
 
-  const inviteUrl = getGuestInvitationUrl(guest.code);
+  const inviteUrl = getGuestInvitationUrl(guest.code, guest.side, guest.fullName, guest.id, guest.eventIds);
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=15&data=${encodeURIComponent(
     inviteUrl
   )}`;

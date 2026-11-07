@@ -7,96 +7,96 @@ import type { EventDetail } from "../data/weddingData";
 
 interface CeremonySectionProps {
   currentGuest?: Guest;
+  isGuestView?: boolean;
+  guestSide?: "groom" | "bride";
 }
 
-export default function CeremonySection({ currentGuest }: CeremonySectionProps) {
-  // 1. TẤT CẢ SỰ KIỆN CỦA HAI BÊN TỪ DỮ LIỆU CHUẨN
-  const groomAllEvents: EventDetail[] = [
-    weddingData.events.tiecThanMatNhaTrai || weddingData.events.tiecThanMat,
-    weddingData.events.thanhHon,
-  ];
+export default function CeremonySection({
+  currentGuest,
+  isGuestView = false,
+  guestSide,
+}: CeremonySectionProps) {
+  // 1. TẤT CẢ SỰ KIỆN CHUẨN CỦA HAI BÊN TỪ WEDDING DATA
+  // Bảo đảm 100% sự kiện nhà trai có side = "groom", nhà gái có side = "bride"
+  const groomAllEvents: EventDetail[] = useMemo(() => {
+    const list = [
+      weddingData.events.tiecThanMatNhaTrai || weddingData.events.tiecThanMat,
+      weddingData.events.thanhHon,
+    ];
+    return list.filter((ev): ev is EventDetail => Boolean(ev && ev.side === "groom"));
+  }, []);
 
-  const brideAllEvents: EventDetail[] = [
-    weddingData.events.tiecThanMatNhaGai || weddingData.events.tiecThanMat,
-    weddingData.events.vuQuy,
-  ];
+  const brideAllEvents: EventDetail[] = useMemo(() => {
+    const list = [
+      weddingData.events.tiecThanMatNhaGai,
+      weddingData.events.vuQuy,
+    ];
+    return list.filter((ev): ev is EventDetail => Boolean(ev && ev.side === "bride"));
+  }, []);
 
-  // 2. LỌC SỰ KIỆN THEO KHÁCH MỜI
-  // Nếu có khách mời cá nhân: lọc theo guest.eventIds và event.side
-  const { invitedGroomEvents, invitedBrideEvents, hasAnyInvitedEvents } = useMemo(() => {
-    if (!currentGuest) {
+  // 2. XÁC ĐỊNH BÊN VÀ DANH SÁCH SỰ KIỆN THEO CHẾ ĐỘ XEM
+  // - Khách Nhà trai: CHỈ hiển thị sự kiện side = "groom", KHÔNG hiển thị bất kỳ sự kiện nào của Nhà gái.
+  // - Khách Nhà gái: CHỈ hiển thị sự kiện side = "bride", KHÔNG hiển thị bất kỳ sự kiện nào của Nhà trai.
+  // - Chủ sở hữu: Xem và quản lý toàn bộ sự kiện của cả hai bên.
+  const isGuest = isGuestView || Boolean(currentGuest && !window.location.search.includes("mode=owner"));
+  const effectiveGuestSide: "groom" | "bride" = guestSide || currentGuest?.side || "groom";
+
+  // Quyền chuyển đổi giữa 2 tab: CHỈ dành cho Chủ sở hữu. Khách mời bị khóa cố định theo đúng bên được mời.
+  const canSwitchSides = !isGuest;
+
+  // Lọc sự kiện cho khách mời
+  const { guestGroomEvents, guestBrideEvents } = useMemo(() => {
+    if (!isGuest) {
       return {
-        invitedGroomEvents: groomAllEvents,
-        invitedBrideEvents: brideAllEvents,
-        hasAnyInvitedEvents: true,
+        guestGroomEvents: groomAllEvents,
+        guestBrideEvents: brideAllEvents,
       };
     }
 
-    const eventIds = currentGuest.eventIds || [];
+    const eventIds = currentGuest?.eventIds || [];
 
-    const groomFiltered = groomAllEvents.filter(
-      (ev) => eventIds.includes(ev.id) && ev.side === "groom"
-    );
+    let groomFiltered = groomAllEvents;
+    if (eventIds.length > 0) {
+      const matched = groomAllEvents.filter((ev) => eventIds.includes(ev.id));
+      if (matched.length > 0) groomFiltered = matched;
+    }
 
-    const brideFiltered = brideAllEvents.filter(
-      (ev) => eventIds.includes(ev.id) && ev.side === "bride"
-    );
+    let brideFiltered = brideAllEvents;
+    if (eventIds.length > 0) {
+      const matched = brideAllEvents.filter((ev) => eventIds.includes(ev.id));
+      if (matched.length > 0) brideFiltered = matched;
+    }
 
     return {
-      invitedGroomEvents: groomFiltered,
-      invitedBrideEvents: brideFiltered,
-      hasAnyInvitedEvents: groomFiltered.length > 0 || brideFiltered.length > 0,
+      guestGroomEvents: groomFiltered,
+      guestBrideEvents: brideFiltered,
     };
-  }, [currentGuest]);
+  }, [isGuest, currentGuest, groomAllEvents, brideAllEvents]);
 
-  // Yêu cầu: "Nếu khách không được mời sự kiện nào thì không hiển thị phần lịch trình sự kiện."
-  if (currentGuest && !hasAnyInvitedEvents) {
-    return null;
-  }
+  // Tab đang hoạt động
+  const [activeSide, setActiveSide] = useState<"groom" | "bride">(() => {
+    if (isGuest) return effectiveGuestSide;
+    return "groom";
+  });
 
-  // 3. XÁC ĐỊNH BÊN MẶC ĐỊNH (activeSide) VÀ ĐIỀU KIỆN HIỂN THỊ TAB SWITCHER
-  // Có cho phép đổi tab hay không?
-  // - Nếu không có currentGuest: cho phép đổi giữa 2 bên tự do.
-  // - Nếu currentGuest có sự kiện ở cả 2 bên (invitedGroomEvents > 0 && invitedBrideEvents > 0): cho phép đổi tab.
-  // - Nếu currentGuest chỉ có sự kiện nhà trai: cố định groom, KHÔNG cho đổi/không hiển thị tab nhà gái.
-  // - Nếu currentGuest chỉ có sự kiện nhà gái: cố định bride, KHÔNG cho đổi/không hiển thị tab nhà trai.
-  const canSwitchSides = !currentGuest || (invitedGroomEvents.length > 0 && invitedBrideEvents.length > 0);
-
-  const defaultSide: "groom" | "bride" = useMemo(() => {
-    if (!currentGuest) return "groom";
-    if (invitedGroomEvents.length > 0 && invitedBrideEvents.length === 0) return "groom";
-    if (invitedBrideEvents.length > 0 && invitedGroomEvents.length === 0) return "bride";
-    return currentGuest.side === "bride" ? "bride" : "groom";
-  }, [currentGuest, invitedGroomEvents.length, invitedBrideEvents.length]);
-
-  const [activeSide, setActiveSide] = useState<"groom" | "bride">(defaultSide);
-
-  // Cập nhật khi defaultSide thay đổi hoặc đọc query params URL (?side=groom | bride)
+  // Đồng bộ khi prop thay đổi
   useEffect(() => {
-    if (!canSwitchSides) {
-      setActiveSide(defaultSide);
-      return;
+    if (isGuest) {
+      setActiveSide(effectiveGuestSide);
     }
-
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const side = params.get("side");
-      if (side === "bride" || side === "gai") {
-        setActiveSide("bride");
-      } else if (side === "groom" || side === "trai") {
-        setActiveSide("groom");
-      } else {
-        setActiveSide(defaultSide);
-      }
-    } else {
-      setActiveSide(defaultSide);
-    }
-  }, [defaultSide, canSwitchSides]);
+  }, [isGuest, effectiveGuestSide]);
 
   // Danh sách sự kiện sẽ render theo activeSide
-  const currentEvents = activeSide === "groom" ? invitedGroomEvents : invitedBrideEvents;
+  const currentEvents = useMemo(() => {
+    if (isGuest) {
+      // Khách mời: Lọc triệt để theo effectiveGuestSide
+      return effectiveGuestSide === "groom" ? guestGroomEvents : guestBrideEvents;
+    }
+    // Chủ sở hữu: Hiển thị danh sách sự kiện theo tab được chọn
+    return activeSide === "groom" ? groomAllEvents : brideAllEvents;
+  }, [isGuest, effectiveGuestSide, guestGroomEvents, guestBrideEvents, activeSide, groomAllEvents, brideAllEvents]);
 
-  // Nếu bên đang chọn không có sự kiện nào thì không render card rỗng
+  // Nếu không có sự kiện nào hợp lệ, không hiển thị section
   if (currentEvents.length === 0) {
     return null;
   }
@@ -122,7 +122,7 @@ export default function CeremonySection({ currentGuest }: CeremonySectionProps) 
             Kính mời quý quan khách cùng tham dự các nghi thức trang trọng và chung vui cùng hai gia đình.
           </p>
 
-          {/* THANH CHUYỂN ĐỔI 2 THIỆP: CHỈ HIỂN THỊ KHI KHÁCH ĐƯỢC MỜI CẢ 2 BÊN HOẶC TRUY CẬP LINK CHUNG */}
+          {/* THANH CHUYỂN ĐỔI 2 THIỆP: CHỈ HIỂN THỊ CHO CHỦ SỞ HỮU, ẨN HOÀN TOÀN VỚI KHÁCH MỜI */}
           {canSwitchSides && (
             <div className="ceremony-tab-switcher">
               <button
@@ -144,24 +144,26 @@ export default function CeremonySection({ currentGuest }: CeremonySectionProps) 
             </div>
           )}
 
-          {/* DÒNG THÔNG BÁO THIỆP CÁ NHÂN HÓA NẾU KHÁCH CÓ ĐƯỜNG LINK RIÊNG */}
-          {currentGuest && (
+          {/* DÒNG THÔNG BÁO THIỆP CÁ NHÂN HÓA DÀNH CHO KHÁCH MỜI */}
+          {isGuest && (
             <div className="guest-personalized-badge">
-              <span>Thiệp mời trân trọng gửi tới: <strong>{currentGuest.fullName}</strong></span>
+              <span>
+                Thiệp mời trân trọng gửi tới:{" "}
+                <strong>{currentGuest?.fullName || "Quý khách"}</strong>
+              </span>
               <span className="badge-side-note">
-                {activeSide === "groom"
-                  ? `(${invitedGroomEvents.map((e) => e.title).join(" & ")} tại Nhà Trai)`
-                  : `(${invitedBrideEvents.map((e) => e.title).join(" & ")} tại Nhà Gái)`}
+                {effectiveGuestSide === "groom"
+                  ? `(${currentEvents.map((e) => e.title).join(" & ")} tại Nhà Trai)`
+                  : `(${currentEvents.map((e) => e.title).join(" & ")} tại Nhà Gái)`}
               </span>
             </div>
           )}
         </motion.div>
 
-        {/* THIỆP MỜI HIỂN THỊ DẠNG HỒNG KEM NHẠT */}
-        {/* NẾU CHỈ CÓ 1 SỰ KIỆN: CĂN GIỮA VÀ BỐ CỤC GỌN GÀNG, KHÔNG ĐỂ LẠI CARD TRỐNG HOẶC KHOẢNG TRẮNG */}
+        {/* LƯỚI CARD THIỆP MỜI: NẾU CHỈ CÓ 1 SỰ KIỆN SẼ TỰ ĐỘNG CĂN GIỮA ĐẸP MẮT */}
         <AnimatePresence mode="wait">
           <motion.div
-            key={`${activeSide}-${currentEvents.length}`}
+            key={`${isGuest ? effectiveGuestSide : activeSide}-${currentEvents.length}`}
             className={`ceremony-cards-grid ${currentEvents.length === 1 ? "single-card" : ""}`}
             style={
               currentEvents.length === 1
@@ -178,7 +180,7 @@ export default function CeremonySection({ currentGuest }: CeremonySectionProps) 
           >
             {currentEvents.map((eventItem, idx) => (
               <motion.div
-                key={`${activeSide}-${eventItem.id || idx}-${eventItem.title}`}
+                key={`${eventItem.side}-${eventItem.id || idx}-${eventItem.title}`}
                 className="burgundy-invitation-card"
                 initial={{ opacity: 0, y: 30 }}
                 whileInView={{ opacity: 1, y: 0 }}

@@ -3809,6 +3809,7 @@ button, input, textarea, select {
   padding: 6px 14px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
   z-index: 800;
@@ -4093,13 +4094,21 @@ button, input, textarea, select {
   }
 
   .floating-nav-bar {
-    padding: 4px 8px;
-    gap: 4px;
+    padding: 6px 10px;
+    gap: 6px;
+    justify-content: space-evenly;
+    width: auto;
+    max-width: min(94vw, 420px);
   }
 
   .floating-nav-bar button {
     padding: 6px 8px;
     font-size: 9px;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
   }
 
   .floating-nav-bar button span {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Copy, Check, Share2, Sparkles, Send } from "lucide-react";
 import { weddingData } from "../data/weddingData";
+import { generateGuestSlug } from "../services/guestStorage";
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -10,12 +11,16 @@ interface ShareModalProps {
 
 export default function ShareModal({ isOpen, onClose }: ShareModalProps) {
   const [customName, setCustomName] = useState("");
+  const [selectedSide, setSelectedSide] = useState<"groom" | "bride">("groom");
   const [isCopied, setIsCopied] = useState(false);
 
   const getShareUrl = () => {
     const baseUrl = window.location.origin + window.location.pathname;
-    if (!customName.trim()) return baseUrl;
-    return `${baseUrl}?guest=${encodeURIComponent(customName.trim())}`;
+    if (!customName.trim()) {
+      return `${baseUrl}?side=${selectedSide}`;
+    }
+    const slug = generateGuestSlug(customName.trim());
+    return `${baseUrl}?g=${encodeURIComponent(slug)}&guest=${encodeURIComponent(customName.trim())}&side=${selectedSide}`;
   };
 
   const handleCopyLink = () => {
@@ -69,6 +74,46 @@ export default function ShareModal({ isOpen, onClose }: ShareModalProps) {
             </div>
 
             <div className="share-input-group">
+              <label>Khách mời thuộc bên:</label>
+              <div style={{ display: "flex", gap: "8px", marginTop: "4px", marginBottom: "12px" }}>
+                <button
+                  type="button"
+                  style={{
+                    flex: 1,
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: selectedSide === "groom" ? "1.5px solid #65001D" : "1px solid #D6C2C7",
+                    background: selectedSide === "groom" ? "#FFF0F3" : "#FFF",
+                    color: selectedSide === "groom" ? "#65001D" : "#4A3A3D",
+                    fontWeight: selectedSide === "groom" ? "600" : "normal",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                  }}
+                  onClick={() => setSelectedSide("groom")}
+                >
+                  Nhà Trai (Chú rể)
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    flex: 1,
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: selectedSide === "bride" ? "1.5px solid #65001D" : "1px solid #D6C2C7",
+                    background: selectedSide === "bride" ? "#FFF0F3" : "#FFF",
+                    color: selectedSide === "bride" ? "#65001D" : "#4A3A3D",
+                    fontWeight: selectedSide === "bride" ? "600" : "normal",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                  }}
+                  onClick={() => setSelectedSide("bride")}
+                >
+                  Nhà Gái (Cô dâu)
+                </button>
+              </div>
+            </div>
+
+            <div className="share-input-group">
               <label>Tên khách mời:</label>
               <input
                 type="text"
@@ -83,7 +128,7 @@ export default function ShareModal({ isOpen, onClose }: ShareModalProps) {
               <div className="share-preview-box">
                 <Sparkles size={14} className="preview-sparkle" />
                 <span>
-                  Khách mở thiệp sẽ thấy: <strong>"Kính gửi: {customName.trim()}"</strong>
+                  Khách mở thiệp sẽ thấy: <strong>"Kính gửi: {customName.trim()}"</strong> ({selectedSide === "groom" ? "Nhà Trai" : "Nhà Gái"})
                 </span>
               </div>
             )}

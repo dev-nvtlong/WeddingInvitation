@@ -1,7 +1,7 @@
-import type { Guest, WishItem, AdminStats, GoogleSheetsConfig, WeddingSide, PartyDetailedStats, SingleEventStat } from "../types/guestManagement";
-import { weddingData } from "../data/weddingData";
-import { getGuestInvitationUrl } from "../utils/guestList";
-import { escapeCSV, parseCSV } from "../utils/csv";
+import type { Guest, WishItem, AdminStats, GoogleSheetsConfig, WeddingSide, PartyDetailedStats, SingleEventStat } from "../types/guestManagement.ts";
+import { weddingData } from "../data/weddingData.ts";
+import { getGuestInvitationUrl } from "../utils/guestList.ts";
+import { escapeCSV, parseCSV } from "../utils/csv.ts";
 
 const STORAGE_KEY_GUESTS = "wedding_guests_v2";
 const STORAGE_KEY_WISHES = "wedding_wishes_v2";
@@ -195,6 +195,7 @@ export function getGuestByCode(codeOrSlug: string): Guest | undefined {
   const guests = getGuests();
   const found = (
     guests.find((g) => g.code.toLowerCase() === clean) ||
+    guests.find((g) => (g.id && g.id.toLowerCase() === clean)) ||
     guests.find((g) => generateGuestSlug(g.fullName) === clean) ||
     guests.find((g) => g.fullName.toLowerCase() === clean)
   );

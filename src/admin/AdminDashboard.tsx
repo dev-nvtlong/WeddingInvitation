@@ -637,7 +637,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                       </tr>
                     ) : (
                       filteredGuests.map((g) => {
-                        const guestUrl = getGuestInvitationUrl(g.code);
+                        const guestUrl = getGuestInvitationUrl(g.code, g.side, g.fullName, g.id, g.eventIds);
 
                         return (
                           <tr key={g.id}>

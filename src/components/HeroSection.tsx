@@ -5,6 +5,7 @@ import { weddingData } from "../data/weddingData";
 
 interface HeroSectionProps {
   guestName?: string;
+  guestSide?: "groom" | "bride";
   onOpenShareModal?: () => void;
 }
 
@@ -16,7 +17,7 @@ interface TimeLeft {
   isPast: boolean;
 }
 
-export default function HeroSection({ guestName }: HeroSectionProps) {
+export default function HeroSection({ guestName, guestSide = "groom" }: HeroSectionProps) {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
     hours: 0,
@@ -57,7 +58,10 @@ export default function HeroSection({ guestName }: HeroSectionProps) {
   }, []);
 
   const addToGoogleCalendar = () => {
-    const { title, details, location, start, end } = weddingData.events.thanhHon.calendarEvent;
+    const calendarEvent = guestSide === "bride"
+      ? weddingData.events.vuQuy.calendarEvent
+      : weddingData.events.thanhHon.calendarEvent;
+    const { title, details, location, start, end } = calendarEvent;
     const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(
       title
     )}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(
