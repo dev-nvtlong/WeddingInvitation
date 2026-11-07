@@ -1,4 +1,6 @@
 export interface EventDetail {
+  id: string;
+  side: "groom" | "bride";
   title: string;
   subtitle: string;
   time: string;
@@ -72,6 +74,8 @@ export interface WeddingData {
   };
   events: {
     tiecThanMat: EventDetail;
+    tiecThanMatNhaTrai?: EventDetail;
+    tiecThanMatNhaGai?: EventDetail;
     vuQuy: EventDetail;
     thanhHon: EventDetail;
     tiecMung: EventDetail;
@@ -120,32 +124,32 @@ export const weddingData: WeddingData = {
     fatherName: "Ông Nguyễn Văn Thế",
     motherName: "Bà Vũ Thị Nhung",
     birthOrder: "Hoàng tử",
-    phone: "0988 123 456",
+    phone: "0966824278",
     description: "Cảm ơn em đã bước vào cuộc đời anh, biến những ngày bình thường thành những ngày ngập tràn nụ cười và hạnh phúc.",
     bank: {
-      bankName: "Vietcombank",
-      accountNumber: "1023456789",
+      bankName: "VIETINBANK",
+      accountNumber: "100870851721",
       accountName: "NGUYEN VU TRUONG LONG",
-      branch: "Chi nhánh Hải Phòng",
-      qrUrl: "https://img.vietqr.io/image/VCB-1023456789-compact2.png?amount=0&addInfo=Mung%20cuoi%20Long%20Toi&accountName=NGUYEN%20VU%20TRUONG%20LONG",
+      branch: "Chi nhánh Cầu Giấy - Hà Nội",
+      qrUrl: "https://img.vietqr.io/image/ICB-100870851721-compact2.png?amount=0&addInfo=Mung%20cuoi%20Long%20Toi&accountName=NGUYEN%20VU%20TRUONG%20LONG",
     },
   },
   bride: {
-    fullName: "Nguyễn Thanh Tới",
+    fullName: "Nguyễn Thị Tới",
     shortName: "Thanh Tới",
     role: "Cô Dâu",
-    image: "/images/AIMGL9560.jpg",
+    image: "/images/IMGL9185k.jpg",
     fatherName: "Ông Nguyễn Văn Tích",
     motherName: "Bà Đỗ Thị Tòng",
     birthOrder: "Tứ công chúa",
-    phone: "0977 654 321",
+    phone: "0584254914",
     description: "Hạnh phúc không phải là tìm được người hoàn hảo, mà là tìm được một người cùng mình già đi trong bình yên và yêu thương.",
     bank: {
-      bankName: "MB Bank (Ngân hàng Quân Đội)",
-      accountNumber: "9876543210",
+      bankName: "VIETINBANK",
+      accountNumber: "102870851704",
       accountName: "NGUYEN THI TOI",
-      branch: "Chi nhánh Ninh Bình",
-      qrUrl: "https://img.vietqr.io/image/MB-9876543210-compact2.png?amount=0&addInfo=Mung%20cuoi%20Long%20Toi&accountName=NGUYEN%20THANH%20TOI",
+      branch: "Chi nhánh Cầu Giấy - Hà Nội",
+      qrUrl: "https://img.vietqr.io/image/ICB-102870851704-compact2.png?amount=0&addInfo=Mung%20cuoi%20Long%20Toi&accountName=NGUYEN%20THANH%20TOI",
     },
   },
   weddingDate: {
@@ -159,50 +163,80 @@ export const weddingData: WeddingData = {
   },
   events: {
     tiecThanMat: {
+      id: "tiec_than_mat",
+      side: "groom",
       title: "BỮA CƠM THÂN MẬT",
       subtitle: "Bữa cơm thân mật cùng gia đình và bạn bè thân thiết",
-      descriptionTime: "ĐƯỢC TỔ CHỨC VÀO LÚC 17:30 - THỨ BẢY",
-      dateFormatted: "22.12.2026",
-      lunarDateFormatted: "(Tức ngày 17 tháng 10 năm Bính Ngọ)",
+      descriptionTime: "ĐƯỢC TỔ CHỨC VÀO LÚC 18:00 - THỨ SÁU",
+      dateFormatted: "13.11.2026",
+      lunarDateFormatted: "(Tức ngày 05 tháng 10 năm Bính Ngọ)",
       locationTitle: "TẠI TƯ GIA NHÀ TRAI",
-      addressFormatted: "Số 1 Lương Yên - Bạch Đằng - Hà Nội",
-      mapsUrl: "https://www.google.com/maps/search/?api=1&query=Số+1+Lương+Yên+Bạch+Đằng+Hà+Nội",
-      time: "17:30",
-      date: "Thứ Bảy, ngày 22 tháng 12 năm 2026",
-      lunarDate: "Ngày 17 tháng 10 năm Bính Ngọ",
+      addressFormatted: "Thôn Đông Thái - Vĩnh Bảo - Hải Phòng",
+      mapsUrl: "https://maps.app.goo.gl/aR8Aw5EoDVKw2FoQ8",
+      time: "18:00",
+      date: "Thứ Sáu, ngày 13 tháng 11 năm 2026",
+      lunarDate: "Tức ngày 05 tháng 10 năm Bính Ngọ",
       locationName: "Tư gia Nhà Trai",
-      address: "Số 1 Lương Yên - Bạch Đằng - Hà Nội",
+      address: "Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
       calendarEvent: {
         title: "Bữa Cơm Thân Mật - Long & Tới",
-        details: "Bữa cơm thân mật cùng gia đình và bạn bè tại Số 1 Lương Yên, Bạch Đằng, Hà Nội",
-        location: "Số 1 Lương Yên, Bạch Đằng, Hà Nội",
-        start: "20261222T173000",
-        end: "20261222T210000",
+        details: "Bữa cơm thân mật cùng gia đình và bạn bè tại Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
+        location: "Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
+        start: "20261113T180000",
+        end: "20261113T210000",
+      },
+    },
+    tiecThanMatNhaGai: {
+      id: "tiec_than_mat_nha_gai",
+      side: "bride",
+      title: "BỮA CƠM THÂN MẬT",
+      subtitle: "Bữa cơm thân mật cùng gia đình và bạn bè thân thiết",
+      descriptionTime: "ĐƯỢC TỔ CHỨC VÀO LÚC 18:00 - THỨ SÁU",
+      dateFormatted: "13.11.2026",
+      lunarDateFormatted: "(Tức ngày 05 tháng 10 năm Bính Ngọ)",
+      locationTitle: "TẠI TƯ GIA NHÀ GÁI",
+      addressFormatted: "Ngã 5 Thanh Sơn - Phù Vân - Ninh Bình",
+      mapsUrl: "https://maps.app.goo.gl/wZn8pssBgCSsieMDA",
+      time: "18:00",
+      date: "Thứ Sáu, ngày 13 tháng 11 năm 2026",
+      lunarDate: "Tức ngày 05 tháng 10 năm Bính Ngọ",
+      locationName: "Tư gia Nhà Gái",
+      address: "Ngã 5 Thanh Sơn, Phù Vân, Ninh Bình",
+      calendarEvent: {
+        title: "Bữa Cơm Thân Mật (Nhà Gái) - Long & Tới",
+        details: "Bữa cơm thân mật cùng gia đình và bạn bè tại Ngã 5 Thanh Sơn, Phù Vân, Ninh Bình",
+        location: "Ngã 5 Thanh Sơn, Phù Vân, Ninh Bình",
+        start: "20261113T180000",
+        end: "20261113T210000",
       },
     },
     vuQuy: {
+      id: "vu_quy",
+      side: "bride",
       title: "LỄ VU QUY",
       subtitle: "Nghi lễ trang trọng tại tư gia nhà gái",
-      descriptionTime: "ĐƯỢC TỔ CHỨC VÀO LÚC 09:00 - THỨ BẢY",
+      descriptionTime: "ĐƯỢC TỔ CHỨC VÀO LÚC 07:00 - THỨ BẢY",
       dateFormatted: "14.11.2026",
       lunarDateFormatted: "(Tức ngày 06 tháng 10 năm Bính Ngọ)",
       locationTitle: "TẠI TƯ GIA NHÀ GÁI",
       addressFormatted: "Ngã 5 Thanh Sơn - Phù Vân - Ninh Bình",
-      mapsUrl: "https://www.google.com/maps/search/?api=1&query=Ngã+5+Thanh+Sơn+Phù+Vân+Ninh+Bình",
-      time: "09:00",
+      mapsUrl: "https://maps.app.goo.gl/wZn8pssBgCSsieMDA",
+      time: "07:00",
       date: "Thứ Bảy, ngày 14 tháng 11 năm 2026",
-      lunarDate: "Nhằm ngày 06 tháng 10 năm Bính Ngọ",
+      lunarDate: "Tức ngày 06 tháng 10 năm Bính Ngọ",
       locationName: "Tư gia Nhà Gái",
       address: "Ngã 5 Thanh Sơn, Phù Vân, Ninh Bình",
       calendarEvent: {
         title: "Lễ Vu Quy - Long & Tới",
         details: "Lễ Vu Quy và Tiệc mừng cùng Họ Nhà Gái tại Ngã 5 Thanh Sơn, Phù Vân, Ninh Bình",
         location: "Ngã 5 Thanh Sơn, Phù Vân, Ninh Bình",
-        start: "20261114T090000",
-        end: "20261114T130000",
+        start: "20261114T070000",
+        end: "20261114T110000",
       },
     },
     thanhHon: {
+      id: "thanh_hon",
+      side: "groom",
       title: "LỄ THÀNH HÔN",
       subtitle: "Tiệc cưới và Nghi thức thành hôn tại Nhà Trai",
       descriptionTime: "ĐƯỢC TỔ CHỨC VÀO LÚC 10:30 - THỨ BẢY",
@@ -210,29 +244,31 @@ export const weddingData: WeddingData = {
       lunarDateFormatted: "(Tức ngày 06 tháng 10 năm Bính Ngọ)",
       locationTitle: "TẠI TƯ GIA NHÀ TRAI",
       addressFormatted: "Thôn Đông Thái - Vĩnh Bảo - Hải Phòng",
-      mapsUrl: "https://www.google.com/maps/search/?api=1&query=Thôn+Đông+Thái+Vĩnh+Bảo+Hải+Phòng",
-      time: "10:30",
+      mapsUrl: "https://maps.app.goo.gl/aR8Aw5EoDVKw2FoQ8",
+      time: "10:00",
       date: "Thứ Bảy, ngày 14 tháng 11 năm 2026",
-      lunarDate: "Nhằm ngày 06 tháng 10 năm Bính Ngọ",
+      lunarDate: "Tức ngày 06 tháng 10 năm Bính Ngọ",
       locationName: "Tư gia Nhà Trai",
       address: "Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
       calendarEvent: {
         title: "Lễ Thành Hôn - Long & Tới",
         details: "Lễ Thành Hôn và Tiệc cưới mừng hạnh phúc tại Tư gia Nhà Trai, Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
         location: "Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
-        start: "20261115T110000",
-        end: "20261115T140000",
+        start: "20261115T100000",
+        end: "20261115T130000",
       },
     },
     tiecMung: {
+      id: "tiec_mung",
+      side: "groom",
       title: "TIỆC CƯỚI CHUNG VUI",
       subtitle: "Bữa cơm thân mật và giao lưu âm nhạc",
       time: "10:30",
       date: "Thứ Bảy, ngày 14 tháng 11 năm 2026",
-      lunarDate: "Nhằm ngày 06 tháng 10 năm Bính Ngọ",
+      lunarDate: "Tức ngày 06 tháng 10 năm Bính Ngọ",
       locationName: "Hội Trường Tiệc Cưới Tư Gia Nhà Trai",
       address: "Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
-      mapsUrl: "https://www.google.com/maps/search/?api=1&query=Thôn+Đông+Thái+Vĩnh+Bảo+Hải+Phòng",
+      mapsUrl: "https://maps.app.goo.gl/aR8Aw5EoDVKw2FoQ8",
       calendarEvent: {
         title: "Tiệc Cưới Chung Vui - Long & Tới",
         details: "Bữa cơm thân mật chung vui mừng ngày hạnh phúc của Long & Tới tại Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
@@ -291,7 +327,7 @@ export const weddingData: WeddingData = {
       year: "Tháng 11 / 2026",
       title: "Ngày Chung Đôi",
       description: "Chính thức về chung một nhà, hai ta cùng nắm tay nhau bước vào chương mới của cuộc đời, xây đắp tổ ấm hạnh phúc vẹn tròn.",
-      image: "/images/IMGL9264.jpg",
+      image: "/images/AIMGL9214.jpg",
     },
   ],
   dressCode: {
@@ -306,75 +342,17 @@ export const weddingData: WeddingData = {
   },
   gallery: [
     { id: 1, src: "/images/AIMGL9214.jpg", title: "Ảnh Cổng Hoàng Gia", category: "gate" },
-    { id: 2, src: "/images/AIMGL9560.jpg", title: "Nụ Cười Rạng Rỡ", category: "gate" },
-    { id: 3, src: "/images/IMGL9305b.jpg", title: "Bàn Tiệc Kỷ Niệm", category: "romantic" },
-    { id: 4, src: "/images/IMGL9185k.jpg", title: "Ánh Mắt Yêu Thương", category: "romantic" },
-    { id: 5, src: "/images/IMGL9209k.jpg", title: "Nắm Tay Nhau Đi", category: "romantic" },
-    { id: 6, src: "/images/IMGL9221.jpg", title: "Thanh Xuân Cùng Em", category: "studio" },
-    { id: 7, src: "/images/IMGL9228ka.jpg", title: "Váy Cưới Lộng Lẫy", category: "studio" },
-    { id: 8, src: "/images/IMGL9234.jpg", title: "Bên Nhau Dịu Dàng", category: "romantic" },
-    { id: 9, src: "/images/IMGL9240.jpg", title: "Nụ Cười Hạnh Phúc", category: "studio" },
-    { id: 10, src: "/images/IMGL9254.jpg", title: "Cái Ôm Bình Yên", category: "romantic" },
-    { id: 11, src: "/images/IMGL9264.jpg", title: "Ngày Chung Đôi", category: "romantic" },
-    { id: 12, src: "/images/IMGL9274.jpg", title: "Tình Yêu Vĩnh Cửu", category: "studio" },
-    { id: 13, src: "/images/IMGL9331.jpg", title: "Nguyện Ước Trăm Năm", category: "romantic" },
-    { id: 14, src: "/images/IMGL9346k.jpg", title: "Bình Minh Của Chúng Ta", category: "romantic" },
-    { id: 15, src: "/images/IMGL9358.jpg", title: "Chạm Nhẹ Bàn Tay", category: "romantic" },
-    { id: 16, src: "/images/IMGL9367.jpg", title: "Phút Giây Hạnh Ngộ", category: "studio" },
-    { id: 17, src: "/images/IMGL9374k.jpg", title: "Lời Hứa Trọn Đời", category: "romantic" },
-    { id: 18, src: "/images/IMGL9513k.jpg", title: "Chuyện Tình Ta", category: "studio" },
-    { id: 19, src: "/images/IMGL9529.jpg", title: "Ngập Tràn Hạnh Phúc", category: "romantic" },
-    { id: 20, src: "/images/IMGL9540.jpg", title: "Khoảnh Khắc Vàng", category: "romantic" },
-    { id: 21, src: "/images/IMGL9633k.jpg", title: "Giai Điệu Tình Yêu", category: "studio" },
-    { id: 22, src: "/images/IMGL9818.jpg", title: "Dưới Tán Hoa", category: "romantic" },
-    { id: 23, src: "/images/IMGL9826.jpg", title: "Ánh Nhìn Ngọt Ngào", category: "romantic" },
-    { id: 24, src: "/images/IMGL9833k.jpg", title: "Bên Nhau Mãi Mãi", category: "studio" },
-    { id: 25, src: "/images/IMGL9879.jpg", title: "Vẹn Tròn Hạnh Phúc", category: "romantic" },
+    { id: 2, src: "/images/IMGL9221.jpg", title: "Nụ Cười Rạng Rỡ", category: "gate" },
+    { id: 3, src: "/images/IMGL9826.jpg", title: "Ánh Mắt Yêu Thương", category: "romantic" },
+    { id: 4, src: "/images/IMGL9513k.jpg", title: "Nụ Cười Hạnh Phúc", category: "studio" },
+    { id: 5, src: "/images/IMGL9346k.jpg", title: "Nguyện Ước Trăm Năm", category: "studio" },
+    { id: 6, src: "/images/IMGL9305b.jpg", title: "Thanh Xuân Cùng Em", category: "studio" },
+    { id: 7, src: "/images/IMGL9374k.jpg", title: "Tình Yêu Vĩnh Cửu", category: "studio" },
+    { id: 8, src: "/images/IMGL9818.jpg", title: "Ánh Nhìn Ngọt Ngào", category: "studio" },
+    { id: 9, src: "/images/IMGL9633k.jpg", title: "Ngày Chung Đôi", category: "studio" },
+    { id: 10, src: "/images/IMGL9540.jpg", title: "Giai Điệu Tình Yêu", category: "studio" },
   ],
-  defaultWishes: [
-    {
-      id: 1,
-      name: "Huy",
-      relationship: "Bạn thân",
-      message: "Chúc hai bạn trăm năm hạnh phúc!",
-      createdAt: "Vừa xong",
-    },
-    {
-      id: 2,
-      name: "Chanh",
-      relationship: "Bạn Cô Dâu",
-      message: "Chúc mừng hạnh phúc trăm năm!",
-      createdAt: "1 phút trước",
-    },
-    {
-      id: 3,
-      name: "Chính",
-      relationship: "Bạn Chú Rể",
-      message: "Chúc hai bạn sớm có tin vui nhé!",
-      createdAt: "3 phút trước",
-    },
-    {
-      id: 4,
-      name: "Linh",
-      relationship: "Đồng nghiệp",
-      message: "💫 Đồng tâm đồng lòng, xây đắp tổ ấm thịnh vượng!",
-      createdAt: "5 phút trước",
-    },
-    {
-      id: 5,
-      name: "Tuấn Dịu",
-      relationship: "Bạn thân",
-      message: "Chúc hai bạn trăm năm hạnh phúc, đầu bạc răng long! Tổ ấm nhỏ luôn rộn rã tiếng cười!",
-      createdAt: "10 phút trước",
-    },
-    {
-      id: 6,
-      name: "Hiền Châm",
-      relationship: "Bạn Chú Rể",
-      message: "Mừng ngày hạnh phúc của hai bạn! Chúc Long và Tới mãi luôn thấu hiểu và yêu thương nhau!",
-      createdAt: "15 phút trước",
-    },
-  ],
+  defaultWishes: [],
   music: {
     title: "A Thousand Years (Romantic Piano)",
     artist: "Wedding Melody",
@@ -385,3 +363,60 @@ export const weddingData: WeddingData = {
     author: "Antoine de Saint-Exupéry",
   },
 };
+
+
+export interface WeddingEventMeta {
+  id: string;
+  side: "groom" | "bride";
+  name: string;
+  timeDate: string;
+  location: string;
+}
+
+export const AVAILABLE_EVENTS: WeddingEventMeta[] = [
+  {
+    id: "tiec_than_mat",
+    side: "groom",
+    name: "Bữa cơm thân mật (Nhà trai)",
+    timeDate: "18:00 - 13/11/2026",
+    location: "KDC Đông Thái, Vĩnh Bảo, Hải Phòng",
+  },
+  {
+    id: "thanh_hon",
+    side: "groom",
+    name: "Lễ Thành Hôn (Nhà trai)",
+    timeDate: "10:30 - 14/11/2026",
+    location: "Thôn Đông Thái, Vĩnh Bảo, Hải Phòng",
+  },
+  {
+    id: "tiec_than_mat_nha_gai",
+    side: "bride",
+    name: "Bữa cơm thân mật (Nhà gái)",
+    timeDate: "18:00 - 13/11/2026",
+    location: "Ngã 5 Thanh Sơn, Phù Vân, Ninh Bình",
+  },
+  {
+    id: "vu_quy",
+    side: "bride",
+    name: "Lễ Vu Quy (Nhà gái)",
+    timeDate: "07:00 - 14/11/2026",
+    location: "Ngã 5 Thanh Sơn, Phù Vân, Ninh Bình",
+  },
+];
+
+export function getEventDetailById(id: string): EventDetail | undefined {
+  switch (id) {
+    case "tiec_than_mat":
+      return weddingData.events.tiecThanMat;
+    case "thanh_hon":
+      return weddingData.events.thanhHon;
+    case "tiec_than_mat_nha_gai":
+      return weddingData.events.tiecThanMatNhaGai;
+    case "vu_quy":
+      return weddingData.events.vuQuy;
+    case "tiec_mung":
+      return weddingData.events.tiecMung;
+    default:
+      return undefined;
+  }
+}

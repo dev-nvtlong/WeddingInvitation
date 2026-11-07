@@ -131,7 +131,7 @@ export default function HeroSection({ guestName }: HeroSectionProps) {
                 <span className="time-badge">10:30</span>
               </div>
               <p className="date-lunar">
-                (Nhằm ngày 06 tháng 10 năm Bính Ngọ)
+                (Tức ngày 06 tháng 10 năm Bính Ngọ)
               </p>
             </div>
 
@@ -157,7 +157,7 @@ export default function HeroSection({ guestName }: HeroSectionProps) {
                 aria-label="Mở thiệp cưới"
               >
                 <MailOpen size={16} />
-                <span>OPEN INVITATION</span>
+                <span>Mở thiệp cưới</span>
                 <ChevronDown size={16} className="btn-bounce-icon" />
               </button>
             </div>
@@ -254,7 +254,7 @@ export default function HeroSection({ guestName }: HeroSectionProps) {
                 <span>{weddingData.weddingDate.fullString}</span>
               </div>
               <div className="date-lunar-text">
-                (Nhằm {weddingData.weddingDate.lunarString})
+                (Tức {weddingData.weddingDate.lunarString})
               </div>
             </div>
 

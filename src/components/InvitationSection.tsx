@@ -3,6 +3,9 @@ import { Heart, Phone, Quote } from "lucide-react";
 import { weddingData } from "../data/weddingData";
 
 export default function InvitationSection() {
+  // Lấy và chuẩn hóa số điện thoại trực tiếp từ cấu hình dữ liệu
+  const groomPhone = weddingData.groom.phone ? weddingData.groom.phone.replace(/[^\d+]/g, "") : "";
+  const bridePhone = weddingData.bride.phone ? weddingData.bride.phone.replace(/[^\d+]/g, "") : "";
   return (
     <section className="invitation-section" id="invitation">
       <div className="section-container">
@@ -72,13 +75,15 @@ export default function InvitationSection() {
                 "{weddingData.groom.description}"
               </blockquote>
 
-              {weddingData.groom.phone && (
+              {groomPhone && (
                 <a
-                  href={`tel:${weddingData.groom.phone}`}
+                  href={`tel:${groomPhone}`}
+                  title={`Gọi chú rể: ${weddingData.groom.phone}`}
+                  aria-label={`Gọi chú rể: ${weddingData.groom.phone}`}
                   className="btn-call-couple"
                 >
                   <Phone size={14} />
-                  <span>Gọi cho Chú Rể</span>
+                  <span>Gọi chú rể</span>
                 </a>
               )}
             </div>
@@ -126,13 +131,15 @@ export default function InvitationSection() {
                 "{weddingData.bride.description}"
               </blockquote>
 
-              {weddingData.bride.phone && (
+              {bridePhone && (
                 <a
-                  href={`tel:${weddingData.bride.phone}`}
+                  href={`tel:${bridePhone}`}
+                  title={`Gọi cô dâu: ${weddingData.bride.phone}`}
+                  aria-label={`Gọi cô dâu: ${weddingData.bride.phone}`}
                   className="btn-call-couple"
                 >
                   <Phone size={14} />
-                  <span>Gọi cho Cô Dâu</span>
+                  <span>Gọi cô dâu</span>
                 </a>
               )}
             </div>

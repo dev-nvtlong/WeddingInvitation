@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, QrCode, Heart, Sparkles, ChevronDown, ChevronUp, X, Gift } from "lucide-react";
 import { weddingData } from "../data/weddingData";
@@ -20,6 +21,17 @@ export default function GiftSection() {
       setTimeout(() => setCopiedBride(false), 2500);
     }
   };
+
+  // Khóa cuộn trang khi mở Popup mã QR
+  useEffect(() => {
+    if (previewQr) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [previewQr]);
 
   return (
     <section className="gift-section" id="gift">
@@ -61,7 +73,7 @@ export default function GiftSection() {
               onClick={() => setOpenedGroom(!openedGroom)}
               role="button"
               tabIndex={0}
-              title={openedGroom ? "Bấm để gập phong bao" : "Bấm để mở phong bao lì xì"}
+              title={openedGroom ? "Bấm để đóng phong bao" : "Bấm để mở phong bao lì xì"}
             >
               {/* Nắp bao lì xì */}
               <div className="envelope-flap-top">
@@ -83,7 +95,7 @@ export default function GiftSection() {
                     {openedGroom ? (
                       <>
                         <ChevronUp size={16} />
-                        <span>Đang mở • Chạm để gập lại</span>
+                        <span>Đang mở • Chạm để đóng lại</span>
                       </>
                     ) : (
                       <>
@@ -183,14 +195,14 @@ export default function GiftSection() {
                     </div>
 
                     <div className="letter-note">
-                      <span>Nội dung gửi: <em>Mung cuoi Long Toi - [Ten ban]</em></span>
+                      <span>Nội dung gửi: <em>Mung hanh phuc tram nam Long Toi - [Ten ban]</em></span>
                     </div>
 
                     <button
                       className="btn-fold-envelope"
                       onClick={() => setOpenedGroom(false)}
                     >
-                      <span>Gập phong bao lại</span>
+                      <span>Đóng phong bao lại</span>
                       <ChevronUp size={14} />
                     </button>
                   </div>
@@ -213,7 +225,7 @@ export default function GiftSection() {
               onClick={() => setOpenedBride(!openedBride)}
               role="button"
               tabIndex={0}
-              title={openedBride ? "Bấm để gập phong bao" : "Bấm để mở phong bao lì xì"}
+              title={openedBride ? "Bấm để đóng phong bao" : "Bấm để mở phong bao lì xì"}
             >
               {/* Nắp bao lì xì */}
               <div className="envelope-flap-top">
@@ -235,7 +247,7 @@ export default function GiftSection() {
                     {openedBride ? (
                       <>
                         <ChevronUp size={16} />
-                        <span>Đang mở • Chạm để gập lại</span>
+                        <span>Đang mở • Chạm để đóng lại</span>
                       </>
                     ) : (
                       <>
@@ -335,14 +347,14 @@ export default function GiftSection() {
                     </div>
 
                     <div className="letter-note">
-                      <span>Nội dung gửi: <em>Mung cuoi Long Toi - [Ten ban]</em></span>
+                      <span>Nội dung gửi: <em>Mung hanh phuc tram nam Long Toi - [Ten ban]</em></span>
                     </div>
 
                     <button
                       className="btn-fold-envelope"
                       onClick={() => setOpenedBride(false)}
                     >
-                      <span>Gập phong bao lại</span>
+                      <span>Đóng phong bao lại</span>
                       <ChevronUp size={14} />
                     </button>
                   </div>
@@ -354,6 +366,7 @@ export default function GiftSection() {
       </div>
 
       {/* Modal phóng to mã QR */}
+      {typeof document !== "undefined" && createPortal(
       <AnimatePresence>
         {previewQr && (
           <motion.div
@@ -411,7 +424,7 @@ export default function GiftSection() {
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>, document.body)}
     </section>
   );
 }

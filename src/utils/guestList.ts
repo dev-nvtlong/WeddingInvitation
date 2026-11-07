@@ -11,7 +11,7 @@ export function getGuestRSVPStatus(guest: Guest): RSVPStatus {
   if (guest.invitedTo === "thiep_chu_re" || guest.invitedTo === "both") {
     responses.push(guest.rsvp?.thanhHon);
   }
-  if (["vu_quy", "thiep_co_dau", "both"].includes(guest.invitedTo)) {
+  if (guest.invitedTo && ["vu_quy", "thiep_co_dau", "both"].includes(guest.invitedTo)) {
     responses.push(guest.rsvp?.vuQuy);
   }
   if (responses.some((response) => response?.attending === "attending")) return "attending";

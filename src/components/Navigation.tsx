@@ -2,9 +2,10 @@ import { Heart, Calendar, Camera, MessageSquare, Gift, Share2 } from "lucide-rea
 
 interface NavigationProps {
   onOpenShareModal: () => void;
+  showShareButton?: boolean;
 }
 
-export default function Navigation({ onOpenShareModal }: NavigationProps) {
+export default function Navigation({ onOpenShareModal, showShareButton = true }: NavigationProps) {
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);
     if (el) {
@@ -39,10 +40,12 @@ export default function Navigation({ onOpenShareModal }: NavigationProps) {
         <span>Mừng cưới</span>
       </button>
 
-      <button onClick={onOpenShareModal} className="nav-share-highlight" title="Chia sẻ">
-        <Share2 size={18} />
-        <span>Chia sẻ</span>
-      </button>
+      {showShareButton && (
+        <button onClick={onOpenShareModal} className="nav-share-highlight" title="Chia sẻ">
+          <Share2 size={18} />
+          <span>Chia sẻ</span>
+        </button>
+      )}
     </nav>
   );
 }

@@ -18,8 +18,6 @@ import {
   MessageSquare,
   FileSpreadsheet,
   BarChart3,
-  Wine,
-  Sparkles,
   ShieldCheck,
   AlertCircle,
 } from "lucide-react";
@@ -30,7 +28,6 @@ import {
   addGuest,
   updateGuest,
   deleteGuest,
-  toggleCheckin,
   calculateAdminStats,
   getWishes,
   toggleApproveWish,
@@ -43,7 +40,12 @@ import {
   getAdminPin,
   setAdminPin,
 } from "../services/guestStorage";
-import { syncWithGoogleSheets, GOOGLE_APPS_SCRIPT_TEMPLATE } from "../services/googleSheetsService";
+import {
+  syncWithGoogleSheets,
+  testGoogleSheetsConnection,
+  pullFromGoogleSheets,
+  GOOGLE_APPS_SCRIPT_TEMPLATE,
+} from "../services/googleSheetsService";
 import GuestModal from "./GuestModal";
 import QRModal from "./QRModal";
 import { getGuestInvitationUrl, getGuestRSVPStatus, normalizeGuestSearch } from "../utils/guestList";
@@ -68,7 +70,6 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
   const [selectedGroup, setSelectedGroup] = useState("all");
   const [selectedEvent, setSelectedEvent] = useState<string>("all");
   const [selectedRsvp, setSelectedRsvp] = useState<string>("all");
-  const [selectedCheckin, setSelectedCheckin] = useState("all");
 
   // Modal State
   const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
@@ -77,6 +78,8 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
 
   // Sync State
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState<{ success?: boolean; text: string } | null>(null);
   const [copiedScript, setCopiedScript] = useState(false);
 
@@ -134,25 +137,18 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
 
       // Lọc RSVP
       if (selectedRsvp !== "all" && getGuestRSVPStatus(g) !== selectedRsvp) return false;
-      if (selectedCheckin === "checked" && !g.checkin?.isCheckedIn) return false;
-      if (selectedCheckin === "unchecked" && g.checkin?.isCheckedIn) return false;
 
       return true;
     });
-  }, [guests, searchTerm, selectedGroup, selectedEvent, selectedRsvp, selectedCheckin]);
+  }, [guests, searchTerm, selectedGroup, selectedEvent, selectedRsvp]);
 
   const resetFilters = () => {
     setSearchTerm("");
     setSelectedGroup("all");
     setSelectedEvent("all");
     setSelectedRsvp("all");
-    setSelectedCheckin("all");
   };
 
-  const handleToggleCheckin = (guest: Guest) => {
-    toggleCheckin(guest.id, !guest.checkin?.isCheckedIn);
-    reloadData();
-  };
 
   // Lưu hoặc cập nhật khách mời
   const handleSaveGuest = (guestData: any) => {
@@ -210,12 +206,55 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
     e.target.value = "";
   };
 
-  // Đồng bộ với Google Sheets
+  // 1. Kiểm tra kết nối Google Apps Script
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    setSyncStatusMsg(null);
+    const cleanConfig = {
+      ...sheetConfig,
+      webAppUrl: (sheetConfig.webAppUrl || "").trim(),
+      secretToken: (sheetConfig.secretToken || "").trim(),
+    };
+    saveSheetConfig(cleanConfig);
+    setSheetConfig(cleanConfig);
+    const result = await testGoogleSheetsConnection(cleanConfig);
+    setIsTesting(false);
+    setSyncStatusMsg({ success: result.success, text: result.message });
+  };
+
+  // 2. Đẩy dữ liệu lên Google Sheets (Push)
   const handleSyncSheets = async () => {
     setIsSyncing(true);
     setSyncStatusMsg(null);
-    const result = await syncWithGoogleSheets(sheetConfig);
+    const cleanConfig = {
+      ...sheetConfig,
+      webAppUrl: (sheetConfig.webAppUrl || "").trim(),
+      secretToken: (sheetConfig.secretToken || "").trim(),
+    };
+    saveSheetConfig(cleanConfig);
+    setSheetConfig(cleanConfig);
+    const result = await syncWithGoogleSheets(cleanConfig);
     setIsSyncing(false);
+    setSyncStatusMsg({ success: result.success, text: result.message });
+    if (result.success) {
+      reloadData();
+      setSheetConfig(getSheetConfig());
+    }
+  };
+
+  // 3. Kéo dữ liệu từ Google Sheets về Web (Pull)
+  const handlePullSheets = async () => {
+    setIsPulling(true);
+    setSyncStatusMsg(null);
+    const cleanConfig = {
+      ...sheetConfig,
+      webAppUrl: (sheetConfig.webAppUrl || "").trim(),
+      secretToken: (sheetConfig.secretToken || "").trim(),
+    };
+    saveSheetConfig(cleanConfig);
+    setSheetConfig(cleanConfig);
+    const result = await pullFromGoogleSheets(cleanConfig);
+    setIsPulling(false);
     setSyncStatusMsg({ success: result.success, text: result.message });
     if (result.success) {
       reloadData();
@@ -345,81 +384,96 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
             ==================================================================== */}
         {activeTab === "overview" && (
           <div>
-            {/* 4 THẺ THỐNG KÊ CHÍNH */}
-            <div className="stats-cards-grid">
-              {/* Thẻ 1: Tổng khách mời */}
-              <div className="stat-metric-card">
-                <div className="stat-header">
-                  <span className="stat-title">Tổng Khách Mời</span>
-                  <div className="stat-icon-wrapper primary">
-                    <Users size={20} />
+            {/* ===== THỐNG KÊ TÁCH BIỆT NHÀ TRAI / NHÀ GÁI ===== */}
+            {/* Hàng 1: Nhà Trai và Nhà Gái song song */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" }}>
+
+              {/* ---- NHÀ TRAI ---- */}
+              <div style={{ background: "linear-gradient(135deg,#FDF0F3 0%,#FFF8FA 100%)", border: "1.5px solid #E6BDC6", borderRadius: "16px", padding: "20px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+                  <div style={{ background: "#65001D", borderRadius: "10px", padding: "8px", display: "flex" }}>
+                    <Users size={18} color="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#65001D", fontSize: "15px" }}>🤵 Nhà Trai (Chú Rể)</div>
+                    <div style={{ fontSize: "12px", color: "#8C7B7E" }}>Trường Long</div>
+                  </div>
+                  <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                    <div style={{ fontSize: "28px", fontWeight: 800, color: "#65001D", lineHeight: "1" }}>{stats.groom.totalGuests}</div>
+                    <div style={{ fontSize: "11px", color: "#8C7B7E" }}>khách mời</div>
                   </div>
                 </div>
-                <div className="stat-main-number">{stats.totalGuests}</div>
-                <div className="stat-subtext">Dự kiến: {stats.totalExpectedCount} người</div>
-                <div className="stat-sub-breakdown">
-                  <div className="breakdown-item">
-                    <span>Đã phản hồi: </span>
-                    <strong style={{ color: "#12824C" }}>
-                      {stats.tiecThanMat.attendingCount + stats.vuQuy.attendingCount}
-                    </strong>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "14px", flexWrap: "wrap" }}>
+                  <span style={{ background: "#D4EDDA", color: "#155724", borderRadius: "6px", padding: "3px 10px", fontSize: "12px", fontWeight: 600 }}>✓ Có: {stats.groom.confirmedGuests}</span>
+                  <span style={{ background: "#F8D7DA", color: "#721C24", borderRadius: "6px", padding: "3px 10px", fontSize: "12px", fontWeight: 600 }}>✗ Không: {stats.groom.declinedGuests}</span>
+                  <span style={{ background: "#E9ECEF", color: "#6C757D", borderRadius: "6px", padding: "3px 10px", fontSize: "12px", fontWeight: 600 }}>⏳ Chờ: {stats.groom.pendingGuests}</span>
+                </div>
+                <div style={{ borderTop: "1px solid #E6BDC6", paddingTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#65001D", marginBottom: "5px" }}>🍽️ Bữa Cơm Thân Mật (13/11)</div>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "12px", color: "#554448" }}>Mời: <strong>{stats.groom.events.tiec_than_mat?.invitedCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#12824C" }}>Có: <strong>{stats.groom.events.tiec_than_mat?.attendingCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#C02640" }}>Không: <strong>{stats.groom.events.tiec_than_mat?.declinedCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#8C7B7E" }}>Chờ: <strong>{stats.groom.events.tiec_than_mat?.pendingCount ?? 0}</strong></span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#65001D", marginBottom: "5px" }}>💍 Lễ Thành Hôn (14/11)</div>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "12px", color: "#554448" }}>Mời: <strong>{stats.groom.events.thanh_hon?.invitedCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#12824C" }}>Có: <strong>{stats.groom.events.thanh_hon?.attendingCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#C02640" }}>Không: <strong>{stats.groom.events.thanh_hon?.declinedCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#8C7B7E" }}>Chờ: <strong>{stats.groom.events.thanh_hon?.pendingCount ?? 0}</strong></span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Thẻ 2: Tiệc thân mật */}
-              <div className="stat-metric-card">
-                <div className="stat-header">
-                  <span className="stat-title">Tiệc Thân Mật (22.12)</span>
-                  <div className="stat-icon-wrapper burgundy">
-                    <Wine size={20} />
+              {/* ---- NHÀ GÁI ---- */}
+              <div style={{ background: "linear-gradient(135deg,#FFF4F9 0%,#FFFAFB 100%)", border: "1.5px solid #EAC8D2", borderRadius: "16px", padding: "20px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+                  <div style={{ background: "#B8506C", borderRadius: "10px", padding: "8px", display: "flex" }}>
+                    <Users size={18} color="#fff" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, color: "#B8506C", fontSize: "15px" }}>👰 Nhà Gái (Cô Dâu)</div>
+                    <div style={{ fontSize: "12px", color: "#8C7B7E" }}>Thanh Tới</div>
+                  </div>
+                  <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                    <div style={{ fontSize: "28px", fontWeight: 800, color: "#B8506C", lineHeight: "1" }}>{stats.bride.totalGuests}</div>
+                    <div style={{ fontSize: "11px", color: "#8C7B7E" }}>khách mời</div>
                   </div>
                 </div>
-                <div className="stat-main-number">{stats.tiecThanMat.totalHeadcount}</div>
-                <div className="stat-subtext">Người xác nhận tham dự</div>
-                <div className="stat-sub-breakdown">
-                  <div className="breakdown-item">
-                    <span className="breakdown-dot green" />
-                    <span>Có: {stats.tiecThanMat.attendingCount}</span>
-                  </div>
-                  <div className="breakdown-item">
-                    <span className="breakdown-dot red" />
-                    <span>Không: {stats.tiecThanMat.declinedCount}</span>
-                  </div>
-                  <div className="breakdown-item">
-                    <span className="breakdown-dot gray" />
-                    <span>Chờ: {stats.tiecThanMat.pendingCount}</span>
-                  </div>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "14px", flexWrap: "wrap" }}>
+                  <span style={{ background: "#D4EDDA", color: "#155724", borderRadius: "6px", padding: "3px 10px", fontSize: "12px", fontWeight: 600 }}>✓ Có: {stats.bride.confirmedGuests}</span>
+                  <span style={{ background: "#F8D7DA", color: "#721C24", borderRadius: "6px", padding: "3px 10px", fontSize: "12px", fontWeight: 600 }}>✗ Không: {stats.bride.declinedGuests}</span>
+                  <span style={{ background: "#E9ECEF", color: "#6C757D", borderRadius: "6px", padding: "3px 10px", fontSize: "12px", fontWeight: 600 }}>⏳ Chờ: {stats.bride.pendingGuests}</span>
                 </div>
-              </div>
-
-              {/* Thẻ 3: Lễ vu quy */}
-              <div className="stat-metric-card">
-                <div className="stat-header">
-                  <span className="stat-title">Lễ Vu Quy (14.11)</span>
-                  <div className="stat-icon-wrapper gold">
-                    <Sparkles size={20} />
+                <div style={{ borderTop: "1px solid #EAC8D2", paddingTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#B8506C", marginBottom: "5px" }}>🍽️ Bữa Cơm Thân Mật (13/11)</div>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "12px", color: "#554448" }}>Mời: <strong>{stats.bride.events.tiec_than_mat_nha_gai?.invitedCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#12824C" }}>Có: <strong>{stats.bride.events.tiec_than_mat_nha_gai?.attendingCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#C02640" }}>Không: <strong>{stats.bride.events.tiec_than_mat_nha_gai?.declinedCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#8C7B7E" }}>Chờ: <strong>{stats.bride.events.tiec_than_mat_nha_gai?.pendingCount ?? 0}</strong></span>
+                    </div>
                   </div>
-                </div>
-                <div className="stat-main-number">{stats.vuQuy.totalHeadcount}</div>
-                <div className="stat-subtext">Người xác nhận tham dự</div>
-                <div className="stat-sub-breakdown">
-                  <div className="breakdown-item">
-                    <span className="breakdown-dot green" />
-                    <span>Có: {stats.vuQuy.attendingCount}</span>
-                  </div>
-                  <div className="breakdown-item">
-                    <span className="breakdown-dot red" />
-                    <span>Không: {stats.vuQuy.declinedCount}</span>
-                  </div>
-                  <div className="breakdown-item">
-                    <span className="breakdown-dot gray" />
-                    <span>Chờ: {stats.vuQuy.pendingCount}</span>
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#B8506C", marginBottom: "5px" }}>🌸 Lễ Vu Quy (14/11)</div>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "12px", color: "#554448" }}>Mời: <strong>{stats.bride.events.vu_quy?.invitedCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#12824C" }}>Có: <strong>{stats.bride.events.vu_quy?.attendingCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#C02640" }}>Không: <strong>{stats.bride.events.vu_quy?.declinedCount ?? 0}</strong></span>
+                      <span style={{ fontSize: "12px", color: "#8C7B7E" }}>Chờ: <strong>{stats.bride.events.vu_quy?.pendingCount ?? 0}</strong></span>
+                    </div>
                   </div>
                 </div>
               </div>
-
             </div>
+
+            {/* Hàng 2: 3 thẻ thống kê tổng cộng */}
 
             {/* PHÍM TẮT HÀNH ĐỘNG NHANH */}
             <div
@@ -522,17 +576,6 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                   <option value="pending">Chưa phản hồi</option>
                 </select>
 
-                {/* Lọc Check-in */}
-                <select
-                  className="select-filter"
-                  aria-label="Lọc theo điểm danh"
-                  value={selectedCheckin}
-                  onChange={(e) => setSelectedCheckin(e.target.value)}
-                >
-                  <option value="all">Tất cả Check-in</option>
-                  <option value="checked">Đã check-in</option>
-                  <option value="unchecked">Chưa check-in</option>
-                </select>
               </div>
 
               <div className="toolbar-actions">
@@ -579,7 +622,6 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                       <th style={{ textAlign: "center" }}>Dự Kiến</th>
                       <th>RSVP Tiệc Thân Mật</th>
                       <th>RSVP Lễ Vu Quy</th>
-                      <th style={{ textAlign: "center" }}>Điểm Danh</th>
                       <th style={{ textAlign: "center" }}>Link / QR</th>
                       <th style={{ textAlign: "center" }}>Thao Tác</th>
                     </tr>
@@ -587,7 +629,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                   <tbody>
                     {filteredGuests.length === 0 ? (
                       <tr>
-                        <td colSpan={9} style={{ textAlign: "center", padding: "40px", color: "#8C7B7E" }}>
+                        <td colSpan={10} style={{ textAlign: "center", padding: "40px", color: "#8C7B7E" }}>
                           {guests.length === 0
                             ? "Chưa có khách mời. Chọn Thêm Khách hoặc Nhập CSV để tạo danh sách."
                             : "Không tìm thấy khách mời nào phù hợp với bộ lọc."}
@@ -619,7 +661,7 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                                   🤵 Thiệp Chú Rể
                                 </span>
                               )}
-                              {(g.invitedTo === "thiep_co_dau" || g.invitedTo === "vu_quy") && (
+                              {(g.invitedTo === "thiep_co_dau" || g.invitedTo === "vu_quy" || g.invitedTo === "tiec_than_mat_nha_gai") && (
                                 <span className="event-badge vu_quy" style={{ background: "#FDF4F6", color: "#B8506C", border: "1px solid #EAC8D2" }}>
                                   👰 Thiệp Cô Dâu
                                 </span>
@@ -693,25 +735,6 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                               )}
                             </td>
 
-                            {/* Check-in */}
-                            <td style={{ textAlign: "center" }}>
-                              <button
-                                className={`btn-checkin-toggle ${
-                                  g.checkin?.isCheckedIn ? "checked" : "unchecked"
-                                }`}
-                                onClick={() => handleToggleCheckin(g)}
-                                title={g.checkin?.isCheckedIn ? "Hủy điểm danh" : "Điểm danh khách này"}
-                              >
-                                {g.checkin?.isCheckedIn ? (
-                                  <>
-                                    <CheckCircle2 size={14} />
-                                    <span>Đã tới</span>
-                                  </>
-                                ) : (
-                                  <span>Điểm danh</span>
-                                )}
-                              </button>
-                            </td>
 
                             {/* Link / QR Code */}
                             <td style={{ textAlign: "center" }}>
@@ -858,40 +881,69 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
             {/* Cấu hình URL và Secret Token */}
             <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "24px" }}>
               <div className="form-field-group">
-                <label>URL Google Apps Script Web App (Kết thúc bằng /exec):</label>
+                <label style={{ fontWeight: 600, color: "#4A3A3D" }}>
+                  URL Google Apps Script Web App (Kết thúc bằng /exec):
+                </label>
                 <input
                   type="url"
                   placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
                   value={sheetConfig.webAppUrl}
                   onChange={(e) => setSheetConfig({ ...sheetConfig, webAppUrl: e.target.value })}
                 />
+                <small style={{ color: "#8C7B7E", fontSize: "12px", marginTop: "4px", display: "block" }}>
+                  * Lưu ý: Không dùng link trang tính (docs.google.com/spreadsheets) hay link /dev. Chỉ dùng link Web App kết thúc bằng <strong>/exec</strong>.
+                </small>
               </div>
 
               <div className="form-field-group">
-                <label>Mã Token Bảo Mật (Secret Token):</label>
+                <label style={{ fontWeight: 600, color: "#4A3A3D" }}>Mã Token Bảo Mật (Secret Token):</label>
                 <input
                   type="text"
                   value={sheetConfig.secretToken}
                   onChange={(e) => setSheetConfig({ ...sheetConfig, secretToken: e.target.value })}
                 />
+                <small style={{ color: "#8C7B7E", fontSize: "12px", marginTop: "4px", display: "block" }}>
+                  * Mặc định là: <code>LONG_TOI_WEDDING_2026</code> (phải trùng khớp với SECRET_TOKEN trong code Apps Script).
+                </small>
               </div>
 
-              <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", marginTop: "4px" }}>
                 <button
-                  className="btn-primary-action"
-                  onClick={() => {
-                    saveSheetConfig(sheetConfig);
-                    handleSyncSheets();
-                  }}
-                  disabled={isSyncing}
+                  type="button"
+                  className="btn-secondary-action"
+                  onClick={handleTestConnection}
+                  disabled={isTesting || isSyncing || isPulling}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
                 >
-                  <RefreshCw size={16} className={isSyncing ? "spin" : ""} />
-                  <span>{isSyncing ? "Đang Đồng Bộ..." : "Lưu & Đồng Bộ Ngay"}</span>
+                  <RefreshCw size={15} className={isTesting ? "spin" : ""} />
+                  <span>{isTesting ? "Đang Kiểm Tra..." : "1. Kiểm Tra Kết Nối"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-primary-action"
+                  onClick={handleSyncSheets}
+                  disabled={isSyncing || isTesting || isPulling}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                >
+                  <Upload size={15} className={isSyncing ? "spin" : ""} />
+                  <span>{isSyncing ? "Đang Đẩy Dữ Liệu..." : "2. Đẩy Lên Google Sheets (Push)"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-secondary-action"
+                  onClick={handlePullSheets}
+                  disabled={isPulling || isTesting || isSyncing}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                >
+                  <Download size={15} className={isPulling ? "spin" : ""} />
+                  <span>{isPulling ? "Đang Tải Về..." : "3. Kéo Từ Google Sheets (Pull)"}</span>
                 </button>
 
                 {sheetConfig.lastSyncedAt && (
-                  <span style={{ fontSize: "12px", color: "#8C7B7E" }}>
-                    Lần cuối: {sheetConfig.lastSyncedAt}
+                  <span style={{ fontSize: "12.5px", color: "#65001D", fontWeight: 500, marginLeft: "auto" }}>
+                    ✓ Lần đồng bộ gần nhất: {sheetConfig.lastSyncedAt}
                   </span>
                 )}
               </div>

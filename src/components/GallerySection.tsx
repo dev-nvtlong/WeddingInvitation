@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -47,9 +47,11 @@ export default function GallerySection() {
   const isDraggingCoverflow = useRef(false);
 
   // Filter photos
-  const filteredPhotos = weddingData.gallery.filter((p) =>
-    activeFilter === "all" ? true : p.category === activeFilter
-  );
+  const filteredPhotos = useMemo(() => {
+    return weddingData.gallery
+      .filter((p) => (activeFilter === "all" ? true : p.category === activeFilter))
+      .slice(0, 10);
+  }, [activeFilter]);
 
   // Responsive resize listener
   useEffect(() => {
@@ -247,11 +249,9 @@ export default function GallerySection() {
       case "gate":
         return "Ảnh Cổng";
       case "romantic":
-        return "Lãng Mạn";
-      case "studio":
-        return "Studio";
+        return "Ảnh Bàn";
       default:
-        return "Khoảnh Khắc";
+        return "Ảnh Khung";
     }
   };
 
@@ -321,8 +321,8 @@ export default function GallerySection() {
             {(["all", "gate", "romantic", "studio"] as const).map((cat) => {
               const count =
                 cat === "all"
-                  ? weddingData.gallery.length
-                  : weddingData.gallery.filter((p) => p.category === cat).length;
+                  ? Math.min(10, weddingData.gallery.length)
+                  : Math.min(10, weddingData.gallery.filter((p) => p.category === cat).length);
               return (
                 <button
                   key={cat}
@@ -334,8 +334,8 @@ export default function GallerySection() {
                     : cat === "gate"
                     ? `Ảnh Cổng (${count})`
                     : cat === "romantic"
-                    ? `Lãng Mạn (${count})`
-                    : `Studio (${count})`}
+                    ? `Ảnh Bàn (${count})`
+                    : `Ảnh Khung (${count})`}
                 </button>
               );
             })}

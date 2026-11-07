@@ -57,9 +57,9 @@ export default function LiveStreamFloatingWishes({
 
   // Bộ đếm lượt bắn tim
   const [likeCount, setLikeCount] = useState<number>(() => {
-    if (typeof window === "undefined") return 1288;
+    if (typeof window === "undefined") return 0;
     const saved = localStorage.getItem("wedding_calendar_likes");
-    return saved ? parseInt(saved, 10) : 1288;
+    return saved ? parseInt(saved, 10) : 0;
   });
 
   // Chùm hạt tim bay lên khắp màn hình

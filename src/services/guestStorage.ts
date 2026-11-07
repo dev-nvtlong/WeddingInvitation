@@ -1,4 +1,4 @@
-import type { Guest, WishItem, AdminStats, GoogleSheetsConfig } from "../types/guestManagement";
+import type { Guest, WishItem, AdminStats, GoogleSheetsConfig, WeddingSide, PartyDetailedStats, SingleEventStat } from "../types/guestManagement";
 import { weddingData } from "../data/weddingData";
 import { getGuestInvitationUrl } from "../utils/guestList";
 import { escapeCSV, parseCSV } from "../utils/csv";
@@ -27,148 +27,110 @@ export function generateGuestSlug(fullName: string): string {
   return normalized || `khach-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+
+// Hàm chuẩn hóa dữ liệu khách mời, tự động suy ra side và eventIds nếu chưa có
+// Hàm chuẩn hóa dữ liệu khách mời, phân loại độc lập "groom" hoặc "bride"
+export function normalizeGuest(guest: any): Guest {
+  let side: WeddingSide = guest.side === "bride" ? "bride" : "groom";
+
+  // Phân loại dữ liệu cũ nếu chưa có side hoặc có side là "both"
+  if (!guest.side || guest.side === "both") {
+    const inv = String(guest.invitedTo || "").toLowerCase();
+    const grp = String(guest.group || "").toLowerCase();
+    const evs = Array.isArray(guest.eventIds) ? guest.eventIds : [];
+
+    if (
+      inv === "thiep_co_dau" ||
+      inv === "vu_quy" ||
+      inv === "tiec_than_mat_nha_gai" ||
+      grp.includes("nhà gái") ||
+      grp.includes("cô dâu") ||
+      evs.includes("vu_quy") ||
+      evs.includes("tiec_than_mat_nha_gai")
+    ) {
+      side = "bride";
+    } else {
+      side = "groom";
+    }
+  }
+
+  // Chuẩn hóa danh sách sự kiện theo side
+  let eventIds: string[] = Array.isArray(guest.eventIds) ? [...guest.eventIds] : [];
+  if (side === "groom") {
+    // Chỉ giữ sự kiện của Nhà Trai
+    eventIds = eventIds.filter((id) => id === "tiec_than_mat" || id === "thanh_hon");
+    if (eventIds.length === 0) {
+      const inv = guest.invitedTo;
+      if (inv === "tiec_than_mat") eventIds = ["tiec_than_mat"];
+      else eventIds = ["tiec_than_mat", "thanh_hon"];
+    }
+  } else {
+    // Chỉ giữ sự kiện của Nhà Gái
+    eventIds = eventIds.filter((id) => id === "tiec_than_mat_nha_gai" || id === "vu_quy");
+    if (eventIds.length === 0) {
+      const inv = guest.invitedTo;
+      if (inv === "vu_quy") eventIds = ["vu_quy"];
+      else if (inv === "tiec_than_mat_nha_gai") eventIds = ["tiec_than_mat_nha_gai"];
+      else eventIds = ["tiec_than_mat_nha_gai", "vu_quy"];
+    }
+  }
+
+  const now = new Date().toISOString();
+  const createdAt = guest.createdAt || now;
+  const updatedAt = guest.updatedAt || now;
+
+  return {
+    ...guest,
+    side,
+    eventIds,
+    expectedCount: Number(guest.expectedCount) || 1,
+    createdAt,
+    updatedAt,
+  };
+}
+
 // Dữ liệu mẫu ban đầu trích từ danh sách khách mời của gia đình
-const INITIAL_SEED_GUESTS: Guest[] = [
-  {
-    id: "g_1",
-    code: "tuan-diu",
-    fullName: "Tuấn Dịu",
-    phone: "0912 345 678",
-    group: "Bạn Thế (Nhà Trai)",
-    invitedTo: "both",
-    expectedCount: 2,
-    notes: "Khách mời thân thiết",
-    createdAt: "2026-11-01T08:00:00Z",
-    rsvp: {
-      tiecThanMat: { attending: "attending", attendeeCount: 2, updatedAt: "2026-11-04T10:00:00Z" },
-      vuQuy: { attending: "attending", attendeeCount: 2, updatedAt: "2026-11-04T10:00:00Z" },
-      generalNote: "Chúc hai cháu trăm năm hạnh phúc!",
-      updatedAt: "2026-11-04T10:00:00Z",
-    },
-    checkin: { isCheckedIn: false },
-  },
-  {
-    id: "g_2",
-    code: "hien-cham",
-    fullName: "Hiền Châm",
-    phone: "0983 234 567",
-    group: "Bạn Thế (Nhà Trai)",
-    invitedTo: "tiec_than_mat",
-    expectedCount: 2,
-    notes: "Mời tiệc thân mật tối thứ 7",
-    createdAt: "2026-11-01T08:00:00Z",
-    rsvp: {
-      tiecThanMat: { attending: "attending", attendeeCount: 2, updatedAt: "2026-11-05T14:30:00Z" },
-      updatedAt: "2026-11-05T14:30:00Z",
-    },
-    checkin: { isCheckedIn: false },
-  },
-  {
-    id: "g_3",
-    code: "bac-huan",
-    fullName: "Bác Huân",
-    phone: "0904 111 222",
-    group: "Bạn Thế (Nhà Trai)",
-    invitedTo: "both",
-    expectedCount: 1,
-    createdAt: "2026-11-01T08:00:00Z",
-    rsvp: {
-      tiecThanMat: { attending: "pending", attendeeCount: 1 },
-      vuQuy: { attending: "pending", attendeeCount: 1 },
-    },
-    checkin: { isCheckedIn: false },
-  },
-  {
-    id: "g_4",
-    code: "tham",
-    fullName: "Anh Thám",
-    phone: "0978 999 888",
-    group: "Gia Phong",
-    invitedTo: "tiec_than_mat",
-    expectedCount: 1,
-    createdAt: "2026-11-01T08:00:00Z",
-    rsvp: {
-      tiecThanMat: { attending: "attending", attendeeCount: 1 },
-    },
-    checkin: { isCheckedIn: false },
-  },
-  {
-    id: "g_5",
-    code: "giang",
-    fullName: "Chú Giang",
-    phone: "",
-    group: "Gia Phong",
-    invitedTo: "vu_quy",
-    expectedCount: 1,
-    createdAt: "2026-11-01T08:00:00Z",
-    rsvp: {
-      vuQuy: { attending: "pending", attendeeCount: 1 },
-    },
-    checkin: { isCheckedIn: false },
-  },
-  {
-    id: "g_6",
-    code: "thuan",
-    fullName: "Anh Thuần",
-    phone: "0915 678 901",
-    group: "Bạn Bè",
-    invitedTo: "both",
-    expectedCount: 2,
-    createdAt: "2026-11-01T08:00:00Z",
-    rsvp: {
-      tiecThanMat: { attending: "attending", attendeeCount: 2 },
-      vuQuy: { attending: "declined", attendeeCount: 0 },
-      generalNote: "Hôm đó mình bận công tác chỉ đi tiệc tối được thôi nhé",
-    },
-    checkin: { isCheckedIn: false },
-  },
-  {
-    id: "g_7",
-    code: "hau",
-    fullName: "Bạn Hậu",
-    phone: "",
-    group: "Bạn Chú Rể",
-    invitedTo: "both",
-    expectedCount: 1,
-    createdAt: "2026-11-01T08:00:00Z",
-    rsvp: {
-      tiecThanMat: { attending: "pending", attendeeCount: 1 },
-      vuQuy: { attending: "pending", attendeeCount: 1 },
-    },
-    checkin: { isCheckedIn: false },
-  },
-  {
-    id: "g_8",
-    code: "cuong-v",
-    fullName: "Cường V",
-    phone: "",
-    group: "Bạn Thế (Nhà Trai)",
-    invitedTo: "tiec_than_mat",
-    expectedCount: 1,
-    createdAt: "2026-11-01T08:00:00Z",
-    rsvp: {
-      tiecThanMat: { attending: "attending", attendeeCount: 1 },
-    },
-    checkin: { isCheckedIn: false },
-  },
-];
+const INITIAL_SEED_GUESTS: Guest[] = [];
 
 // --------------------------------------------------------------------------
 // KHÁCH MỜI (GUESTS CRUD)
 // --------------------------------------------------------------------------
 
 export function getGuests(): Guest[] {
-  if (typeof window === "undefined") return INITIAL_SEED_GUESTS;
+  if (typeof window === "undefined") return INITIAL_SEED_GUESTS.map(normalizeGuest);
   try {
     const raw = localStorage.getItem(STORAGE_KEY_GUESTS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY_GUESTS, JSON.stringify(INITIAL_SEED_GUESTS));
-      return INITIAL_SEED_GUESTS;
+      const seeded = INITIAL_SEED_GUESTS.map(normalizeGuest);
+      localStorage.setItem(STORAGE_KEY_GUESTS, JSON.stringify(seeded));
+      return seeded;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return INITIAL_SEED_GUESTS.map(normalizeGuest);
+
+    let needsSave = false;
+    // Loại bỏ dữ liệu ảo nếu đã lưu từ các phiên trước
+    const cleaned = parsed.filter(
+      (g) => g.id !== "g_1" && g.code !== "ban-long" && g.fullName !== "Bạn Long"
+    );
+    if (cleaned.length !== parsed.length) {
+      needsSave = true;
+    }
+
+    const normalized = cleaned.map((g) => {
+      if (!g.side || !Array.isArray(g.eventIds)) {
+        needsSave = true;
+      }
+      return normalizeGuest(g);
+    });
+
+    if (needsSave) {
+      saveGuests(normalized);
+    }
+    return normalized;
   } catch (err) {
     console.error("Lỗi khi đọc danh sách khách mời:", err);
-    return INITIAL_SEED_GUESTS;
+    return INITIAL_SEED_GUESTS.map(normalizeGuest);
   }
 }
 
@@ -193,7 +155,7 @@ export function addGuest(data: Omit<Guest, "id" | "createdAt" | "checkin">): Gue
     code = `${baseCode}-${suffix++}`;
   }
 
-  const newGuest: Guest = {
+  const normalized = normalizeGuest({
     ...data,
     id,
     code,
@@ -201,24 +163,25 @@ export function addGuest(data: Omit<Guest, "id" | "createdAt" | "checkin">): Gue
     checkin: { isCheckedIn: false },
     rsvp: data.rsvp || {
       tiecThanMat: { attending: "pending", attendeeCount: data.expectedCount || 1 },
-      thanhHon: (data.invitedTo === "thiep_chu_re" || data.invitedTo === "both") ? { attending: "pending", attendeeCount: data.expectedCount || 1 } : undefined,
-      vuQuy: (data.invitedTo === "thiep_co_dau" || data.invitedTo === "both" || data.invitedTo === "vu_quy") ? { attending: "pending", attendeeCount: data.expectedCount || 1 } : undefined,
+      thanhHon: (data.eventIds?.includes("thanh_hon") || data.invitedTo === "thiep_chu_re" || data.invitedTo === "both") ? { attending: "pending", attendeeCount: data.expectedCount || 1 } : undefined,
+      vuQuy: (data.eventIds?.includes("vu_quy") || data.invitedTo === "thiep_co_dau" || data.invitedTo === "both" || data.invitedTo === "vu_quy") ? { attending: "pending", attendeeCount: data.expectedCount || 1 } : undefined,
     },
-  };
+  });
 
-  const updated = [newGuest, ...guests];
+  const updated = [normalized, ...guests];
   saveGuests(updated);
-  return newGuest;
+  return normalized;
 }
 
 export function updateGuest(guest: Guest): Guest {
   const guests = getGuests();
   const index = guests.findIndex((g) => g.id === guest.id);
+  const normalized = normalizeGuest(guest);
   if (index !== -1) {
-    guests[index] = { ...guest };
+    guests[index] = normalized;
     saveGuests(guests);
   }
-  return guest;
+  return normalized;
 }
 
 export function deleteGuest(id: string): void {
@@ -230,17 +193,18 @@ export function getGuestByCode(codeOrSlug: string): Guest | undefined {
   if (!codeOrSlug) return undefined;
   const clean = codeOrSlug.trim().toLowerCase();
   const guests = getGuests();
-  return (
+  const found = (
     guests.find((g) => g.code.toLowerCase() === clean) ||
     guests.find((g) => generateGuestSlug(g.fullName) === clean) ||
     guests.find((g) => g.fullName.toLowerCase() === clean)
   );
+  return found ? normalizeGuest(found) : undefined;
 }
 
 // Cập nhật phản hồi RSVP của khách
 export function updateGuestRSVP(
   guestId: string,
-  event: "tiec_than_mat" | "vu_quy",
+  event: "tiec_than_mat" | "thanh_hon" | "vu_quy" | "tiec_than_mat_nha_gai",
   attending: "attending" | "declined" | "pending",
   count: number,
   note?: string
@@ -254,24 +218,27 @@ export function updateGuestRSVP(
     guest.rsvp = {};
   }
 
+  const detail = {
+    attending,
+    attendeeCount: count,
+    updatedAt: now,
+  };
+
   if (event === "tiec_than_mat") {
-    guest.rsvp.tiecThanMat = {
-      attending,
-      attendeeCount: count,
-      updatedAt: now,
-    };
+    guest.rsvp.tiecThanMat = detail;
+  } else if (event === "thanh_hon") {
+    guest.rsvp.thanhHon = detail;
   } else if (event === "vu_quy") {
-    guest.rsvp.vuQuy = {
-      attending,
-      attendeeCount: count,
-      updatedAt: now,
-    };
+    guest.rsvp.vuQuy = detail;
+  } else if (event === "tiec_than_mat_nha_gai") {
+    guest.rsvp.tiecThanMatNhaGai = detail;
   }
 
   if (note !== undefined) {
     guest.rsvp.generalNote = note;
   }
   guest.rsvp.updatedAt = now;
+  guest.updatedAt = now;
 
   saveGuests(guests);
   return guest;
@@ -297,82 +264,151 @@ export function toggleCheckin(guestId: string, isCheckedIn: boolean, actualCount
 // THỐNG KÊ (ANALYTICS STATS)
 // --------------------------------------------------------------------------
 
+// Tính toán thống kê chi tiết cho một bên (Nhà Trai hoặc Nhà Gái)
+function calculatePartySideStats(
+  partyGuests: Guest[],
+  eventDefs: { id: string; name: string; rsvpKey: "tiecThanMat" | "thanhHon" | "tiecThanMatNhaGai" | "vuQuy" }[]
+): PartyDetailedStats {
+  const eventsStat: { [key: string]: SingleEventStat } = {};
+
+  eventDefs.forEach((def) => {
+    eventsStat[def.id] = {
+      eventId: def.id,
+      eventName: def.name,
+      invitedCount: 0,
+      attendingCount: 0,
+      declinedCount: 0,
+      pendingCount: 0,
+      totalHeadcount: 0,
+    };
+  });
+
+  let totalExpectedCount = 0;
+  let confirmedGuests = 0;
+  let declinedGuests = 0;
+  let pendingGuests = 0;
+  let totalHeadcount = 0;
+
+  partyGuests.forEach((g) => {
+    totalExpectedCount += Number(g.expectedCount) || 1;
+    const evIds = g.eventIds || [];
+
+    let hasAttending = false;
+    let allDeclined = evIds.length > 0;
+    let maxGuestHeadcount = 0;
+
+    eventDefs.forEach((def) => {
+      if (evIds.includes(def.id)) {
+        const stat = eventsStat[def.id];
+        stat.invitedCount += 1;
+
+        const rsvpDetail = g.rsvp ? g.rsvp[def.rsvpKey] : undefined;
+        const status = rsvpDetail?.attending || "pending";
+        const count = Number(rsvpDetail?.attendeeCount) || 0;
+
+        if (status === "attending") {
+          hasAttending = true;
+          allDeclined = false;
+          stat.attendingCount += 1;
+          const attendingNum = count > 0 ? count : (Number(g.expectedCount) || 1);
+          stat.totalHeadcount += attendingNum;
+          if (attendingNum > maxGuestHeadcount) {
+            maxGuestHeadcount = attendingNum;
+          }
+        } else if (status === "declined") {
+          stat.declinedCount += 1;
+        } else {
+          allDeclined = false;
+          stat.pendingCount += 1;
+        }
+      }
+    });
+
+    if (hasAttending) {
+      confirmedGuests += 1;
+      totalHeadcount += maxGuestHeadcount > 0 ? maxGuestHeadcount : (Number(g.expectedCount) || 1);
+    } else if (allDeclined && evIds.length > 0) {
+      declinedGuests += 1;
+    } else {
+      pendingGuests += 1;
+    }
+  });
+
+  return {
+    totalGuests: partyGuests.length,
+    totalExpectedCount,
+    confirmedGuests,
+    declinedGuests,
+    pendingGuests,
+    totalHeadcount,
+    events: eventsStat,
+  };
+}
+
 export function calculateAdminStats(): AdminStats {
   const guests = getGuests();
   const wishes = getWishes();
 
-  const stats: AdminStats = {
+  const groomGuests = guests.filter((g) => g.side === "groom");
+  const brideGuests = guests.filter((g) => g.side === "bride");
+
+  // Sự kiện Nhà Trai: Bữa Cơm Thân Mật (13.11) và Lễ Thành Hôn (14.11)
+  const groomStats = calculatePartySideStats(groomGuests, [
+    { id: "tiec_than_mat", name: "Bữa cơm thân mật (13/11)", rsvpKey: "tiecThanMat" },
+    { id: "thanh_hon", name: "Lễ Thành Hôn (14/11)", rsvpKey: "thanhHon" },
+  ]);
+
+  // Sự kiện Nhà Gái: Bữa Cơm Thân Mật (13.11) và Lễ Vu Quy (14.11)
+  const brideStats = calculatePartySideStats(brideGuests, [
+    { id: "tiec_than_mat_nha_gai", name: "Bữa cơm thân mật (13/11)", rsvpKey: "tiecThanMatNhaGai" },
+    { id: "vu_quy", name: "Lễ Vu Quy (14/11)", rsvpKey: "vuQuy" },
+  ]);
+
+  let checkedInTotal = 0;
+  guests.forEach((g) => {
+    if (g.checkin?.isCheckedIn) checkedInTotal += 1;
+  });
+
+  const overall = {
     totalGuests: guests.length,
-    totalExpectedCount: 0,
-    tiecThanMat: {
-      invited: 0,
-      attendingCount: 0,
-      declinedCount: 0,
-      pendingCount: 0,
-      totalHeadcount: 0,
-    },
-    vuQuy: {
-      invited: 0,
-      attendingCount: 0,
-      declinedCount: 0,
-      pendingCount: 0,
-      totalHeadcount: 0,
-    },
+    totalExpectedCount: groomStats.totalExpectedCount + brideStats.totalExpectedCount,
+    totalHeadcount: groomStats.totalHeadcount + brideStats.totalHeadcount,
+    totalWishes: wishes.length,
+    checkedInTotal,
+  };
+
+  // Backward compatibility
+  const legacyTiecThanMat = {
+    invited: (groomStats.events.tiec_than_mat?.invitedCount || 0) + (brideStats.events.tiec_than_mat_nha_gai?.invitedCount || 0),
+    attendingCount: (groomStats.events.tiec_than_mat?.attendingCount || 0) + (brideStats.events.tiec_than_mat_nha_gai?.attendingCount || 0),
+    declinedCount: (groomStats.events.tiec_than_mat?.declinedCount || 0) + (brideStats.events.tiec_than_mat_nha_gai?.declinedCount || 0),
+    pendingCount: (groomStats.events.tiec_than_mat?.pendingCount || 0) + (brideStats.events.tiec_than_mat_nha_gai?.pendingCount || 0),
+    totalHeadcount: (groomStats.events.tiec_than_mat?.totalHeadcount || 0) + (brideStats.events.tiec_than_mat_nha_gai?.totalHeadcount || 0),
+  };
+
+  const legacyVuQuy = {
+    invited: brideStats.events.vu_quy?.invitedCount || 0,
+    attendingCount: brideStats.events.vu_quy?.attendingCount || 0,
+    declinedCount: brideStats.events.vu_quy?.declinedCount || 0,
+    pendingCount: brideStats.events.vu_quy?.pendingCount || 0,
+    totalHeadcount: brideStats.events.vu_quy?.totalHeadcount || 0,
+  };
+
+  return {
+    groom: groomStats,
+    bride: brideStats,
+    overall,
+    totalGuests: overall.totalGuests,
+    totalExpectedCount: overall.totalExpectedCount,
+    totalWishes: wishes.length,
+    tiecThanMat: legacyTiecThanMat,
+    vuQuy: legacyVuQuy,
     checkedIn: {
-      total: 0,
+      total: checkedInTotal,
       tiecThanMat: 0,
       vuQuy: 0,
     },
-    totalWishes: wishes.length,
   };
-
-  guests.forEach((g) => {
-    stats.totalExpectedCount += Number(g.expectedCount) || 1;
-
-    // Tiệc thân mật (có trong cả thiệp chú rể và thiệp cô dâu)
-    if (
-      g.invitedTo === "both" ||
-      g.invitedTo === "tiec_than_mat" ||
-      g.invitedTo === "thiep_chu_re" ||
-      g.invitedTo === "thiep_co_dau"
-    ) {
-      stats.tiecThanMat.invited += 1;
-      const rsvp = g.rsvp?.tiecThanMat;
-      if (rsvp?.attending === "attending") {
-        stats.tiecThanMat.attendingCount += 1;
-        stats.tiecThanMat.totalHeadcount += Number(rsvp.attendeeCount) || 1;
-      } else if (rsvp?.attending === "declined") {
-        stats.tiecThanMat.declinedCount += 1;
-      } else {
-        stats.tiecThanMat.pendingCount += 1;
-      }
-    }
-
-    // Lễ vu quy (có trong thiệp cô dâu và cả hai)
-    if (
-      g.invitedTo === "both" ||
-      g.invitedTo === "vu_quy" ||
-      g.invitedTo === "thiep_co_dau"
-    ) {
-      stats.vuQuy.invited += 1;
-      const rsvp = g.rsvp?.vuQuy;
-      if (rsvp?.attending === "attending") {
-        stats.vuQuy.attendingCount += 1;
-        stats.vuQuy.totalHeadcount += Number(rsvp.attendeeCount) || 1;
-      } else if (rsvp?.attending === "declined") {
-        stats.vuQuy.declinedCount += 1;
-      } else {
-        stats.vuQuy.pendingCount += 1;
-      }
-    }
-
-    // Checkin
-    if (g.checkin?.isCheckedIn) {
-      stats.checkedIn.total += 1;
-    }
-  });
-
-  return stats;
 }
 
 // --------------------------------------------------------------------------
@@ -390,10 +426,19 @@ export function getWishes(): WishItem[] {
       localStorage.setItem(STORAGE_KEY_WISHES, JSON.stringify(initial));
       return initial;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Loại bỏ các lời chúc mẫu ảo trước đây (nếu có trong localStorage)
+    const cleaned = parsed.filter(
+      (w) => !(typeof w.id === "number" && w.id >= 1 && w.id <= 6 && ["Huy", "Chanh", "Chính", "Linh", "Tuấn Dịu", "Hiền Châm"].includes(w.name))
+    );
+    if (cleaned.length !== parsed.length) {
+      saveWishes(cleaned);
+    }
+    return cleaned;
   } catch (err) {
     console.error("Lỗi khi đọc sổ lời chúc:", err);
-    return weddingData.defaultWishes.map((w) => ({ ...w, isApproved: true }));
+    return [];
   }
 }
 
@@ -537,7 +582,7 @@ export function exportGuestsToCSV(): string {
       g.rsvp?.generalNote || "",
       checkin,
       link,
-    ].map(escapeCSV).join(",");
+    ].map((val) => escapeCSV(val ?? "")).join(",");
   });
 
   return "\uFEFF" + [headers.join(","), ...rows].join("\n");
@@ -583,7 +628,7 @@ export function importGuestsFromCSV(csvText: string): number {
       }
       // Kiểm tra trùng
       if (!existing.some((g) => g.fullName.toLowerCase() === name.toLowerCase())) {
-        existing.push({
+        existing.push(normalizeGuest({
           id: `g_imp_${Date.now()}_${i}`,
           code,
           fullName: name,
@@ -597,7 +642,7 @@ export function importGuestsFromCSV(csvText: string): number {
             vuQuy: invitedTo !== "tiec_than_mat" ? { attending: "pending", attendeeCount: count } : undefined,
           },
           checkin: { isCheckedIn: false },
-        });
+        }));
         importedCount++;
       }
     }

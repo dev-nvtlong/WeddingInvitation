@@ -5,8 +5,6 @@ import {
   Send,
   X,
   MessageCircleHeart,
-  ChevronLeft,
-  ChevronRight,
   Check,
 } from "lucide-react";
 import type { Guest, WishItem } from "../types/guestManagement";
@@ -50,9 +48,6 @@ export default function FloatingCalendarWishes({
   currentGuest,
   initialGuestName = "",
 }: FloatingCalendarWishesProps) {
-  // Lựa chọn tháng hiển thị: 11 (Lễ Vu Quy & Tiệc Cưới 14.11) hoặc 12 (Tiệc Thân Mật 22.12)
-  const [selectedMonth, setSelectedMonth] = useState<11 | 12>(11);
-
   // Danh sách lời chúc thực tế từ cơ sở dữ liệu
   const [wishes, setWishes] = useState<WishItem[]>(() => {
     const list = getWishes();
@@ -71,9 +66,9 @@ export default function FloatingCalendarWishes({
 
   // Bộ đếm lượt bắn tim
   const [likeCount, setLikeCount] = useState<number>(() => {
-    if (typeof window === "undefined") return 1286;
+    if (typeof window === "undefined") return 0;
     const saved = localStorage.getItem("wedding_calendar_likes");
-    return saved ? parseInt(saved, 10) : 1286;
+    return saved ? parseInt(saved, 10) : 0;
   });
 
   // Hạt tim bay lên khi nhấn Bắn tim
@@ -234,21 +229,8 @@ export default function FloatingCalendarWishes({
     30, null, null, null, null, null, null,
   ];
 
-  // Tháng 12/2026: 31 ngày, ngày 1 là Thứ Ba (T3)
-  const decDays: (number | null)[] = [
-    null, 1, 2, 3, 4, 5, 6,
-    7, 8, 9, 10, 11, 12, 13,
-    14, 15, 16, 17, 18, 19, 20,
-    21, 22, 23, 24, 25, 26, 27,
-    28, 29, 30, 31, null, null, null,
-  ];
-
-  const currentDays = selectedMonth === 11 ? novDays : decDays;
-  const highlightDay = selectedMonth === 11 ? 14 : 22;
-  const eventLabel =
-    selectedMonth === 11
-      ? "LỄ VU QUY & TIỆC CƯỚI (14.11)"
-      : "TIỆC THÂN MẬT (22.12)";
+  const currentDays = novDays;
+  const eventLabel = "NGÀY CHUNG ĐÔI (13 & 14.11.2026)";
 
   return (
     <div className="floating-calendar-module">
@@ -272,30 +254,12 @@ export default function FloatingCalendarWishes({
         {/* 1. Header Lịch cưới */}
         <div className="calendar-card-header">
           <div className="calendar-month-selector">
-            <button
-              type="button"
-              className="btn-month-nav"
-              onClick={() => setSelectedMonth(selectedMonth === 11 ? 12 : 11)}
-              title="Chuyển tháng"
-            >
-              <ChevronLeft size={18} />
-            </button>
-
-            <div className="calendar-title-box">
+            <div className="calendar-title-box" style={{ textAlign: "center", width: "100%" }}>
               <h3 className="calendar-month-heading">
-                THÁNG {selectedMonth} / 2026
+                THÁNG 11 / 2026
               </h3>
               <p className="calendar-event-sublabel">{eventLabel}</p>
             </div>
-
-            <button
-              type="button"
-              className="btn-month-nav"
-              onClick={() => setSelectedMonth(selectedMonth === 11 ? 12 : 11)}
-              title="Chuyển tháng"
-            >
-              <ChevronRight size={18} />
-            </button>
           </div>
 
           <div className="calendar-couple-subtext">
@@ -325,7 +289,7 @@ export default function FloatingCalendarWishes({
                 return <div key={`empty-${i}`} className="calendar-day-cell empty" />;
               }
 
-              const isHighlight = dayNum === highlightDay;
+              const isHighlight = dayNum === 13 || dayNum === 14;
               const isSunday = i % 7 === 6;
 
               return (

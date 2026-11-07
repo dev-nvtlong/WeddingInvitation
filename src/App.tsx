@@ -64,6 +64,18 @@ export default function App() {
     return guest ? guest.trim() : "";
   });
 
+  // Phân biệt chế độ xem của chủ sở hữu / ban tổ chức vs chế độ khách mời:
+  // - Chủ sở hữu: Đã đăng nhập quản trị (Admin), hoặc mở link thiệp gốc không có định danh khách mời (?g=...), hoặc có tham số mode=owner / owner=true
+  // - Khách mời: Mở thiệp qua link cá nhân hóa (?g=, ?code=, ?guest=...) và không đăng nhập phiên quản trị
+  const isOwnerMode = Boolean(
+    isAdminLoggedIn ||
+    (typeof window !== "undefined" && (
+      window.location.search.includes("mode=owner") ||
+      window.location.search.includes("owner=true") ||
+      (!currentGuest && !guestName)
+    ))
+  );
+
   const [isOpened, setIsOpened] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [audioTrigger, setAudioTrigger] = useState(false);
@@ -143,9 +155,12 @@ export default function App() {
         />
       )}
 
-      {/* Thanh điều hướng nhanh nổi bên dưới */}
+      {/* Thanh điều hướng nhanh nổi bên dưới: Chỉ hiển thị nút Chia sẻ cho chủ sở hữu, ẩn hoàn toàn với khách mời */}
       {isOpened && (
-        <Navigation onOpenShareModal={() => setIsShareModalOpen(true)} />
+        <Navigation
+          onOpenShareModal={() => setIsShareModalOpen(true)}
+          showShareButton={isOwnerMode}
+        />
       )}
 
       {/* Modal tạo link chia sẻ cá nhân hóa */}
