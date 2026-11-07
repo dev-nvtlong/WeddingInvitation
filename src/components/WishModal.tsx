@@ -57,11 +57,16 @@ function WishModalContent({ onClose, children }: Omit<WishModalProps, "isOpen">)
     const viewport = window.visualViewport;
     const updateViewport = () => {
       if (!viewport) return;
+      const isKeyboardOpen = viewport.height < window.innerHeight * 0.75;
       Object.assign(backdrop.style, {
         top: `${viewport.offsetTop}px`,
         left: `${viewport.offsetLeft}px`,
         height: `${viewport.height}px`,
         width: `${viewport.width}px`,
+        // Khi bàn phím ảo thu nhỏ viewport, căn dialog lên trên và cho phép cuộn
+        alignItems: isKeyboardOpen ? "flex-start" : "center",
+        overflowY: isKeyboardOpen ? "auto" : "hidden",
+        paddingTop: isKeyboardOpen ? "8px" : "16px",
       });
     };
     updateViewport();
