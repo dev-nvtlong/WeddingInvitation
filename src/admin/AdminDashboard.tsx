@@ -102,6 +102,28 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
 
   useEffect(() => {
     reloadData();
+
+    // ── Tự động làm mới localStorage mỗi 10 giây (nhận RSVP cùng thiết bị/tab) ──
+    const localInterval = setInterval(() => {
+      reloadData();
+    }, 10000);
+
+    // ── Auto-pull từ Google Sheets mỗi 30 giây (nhận RSVP từ điện thoại khách) ──
+    let sheetsInterval: ReturnType<typeof setInterval> | null = null;
+    const cfg = getSheetConfig();
+    if (cfg?.webAppUrl?.trim()) {
+      sheetsInterval = setInterval(async () => {
+        try {
+          const result = await pullFromGoogleSheets(cfg);
+          if (result.success) reloadData();
+        } catch { /* thầm lặng */ }
+      }, 30000);
+    }
+
+    return () => {
+      clearInterval(localInterval);
+      if (sheetsInterval) clearInterval(sheetsInterval);
+    };
   }, []);
 
   // Danh sách các nhóm khách hiện có để hiển thị trong bộ lọc
@@ -610,7 +632,27 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
             <div className="admin-table-card">
               <div className="guest-list-summary">
                 <span role="status">Hiển thị {filteredGuests.length} / {guests.length} khách mời</span>
-                <button className="btn-secondary-action" onClick={resetFilters}>Xóa bộ lọc</button>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <button
+                    className="btn-secondary-action"
+                    onClick={async () => {
+                      reloadData();
+                      const cfg = getSheetConfig();
+                      if (cfg?.webAppUrl?.trim()) {
+                        try {
+                          const result = await pullFromGoogleSheets(cfg);
+                          if (result.success) reloadData();
+                        } catch { /* ignore */ }
+                      }
+                    }}
+                    title="Làm mới danh sách & kéo RSVP mới nhất từ Sheets"
+                    style={{ display: "flex", alignItems: "center", gap: "5px" }}
+                  >
+                    <RefreshCw size={14} />
+                    Làm mới RSVP
+                  </button>
+                  <button className="btn-secondary-action" onClick={resetFilters}>Xóa bộ lọc</button>
+                </div>
               </div>
               <div className="table-responsive">
                 <table className="admin-data-table">
@@ -620,8 +662,8 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                       <th>Nhóm</th>
                       <th>Sự Kiện Mời</th>
                       <th style={{ textAlign: "center" }}>Dự Kiến</th>
-                      <th>RSVP Tiệc Thân Mật</th>
-                      <th>RSVP Lễ Vu Quy</th>
+                      <th>RSVP Tiệc Thân Mật (13/11)</th>
+                      <th>RSVP Lễ Chính (14/11)</th>
                       <th style={{ textAlign: "center" }}>Link / QR</th>
                       <th style={{ textAlign: "center" }}>Thao Tác</th>
                     </tr>
@@ -678,61 +720,69 @@ export default function AdminDashboard({ onExit }: AdminDashboardProps) {
                               {g.expectedCount || 1}
                             </td>
 
-                            {/* RSVP Tiệc Thân Mật */}
+                            {/* RSVP Tiệc Thân Mật (cột 1) */}
                             <td>
-                              {g.invitedTo === "vu_quy" ? (
-                                <span style={{ color: "#B5A4A7", fontSize: "12px" }}>Không mời</span>
-                              ) : (
-                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                  {g.rsvp?.tiecThanMat?.attending === "attending" && (
-                                    <span className="rsvp-badge attending">
-                                      <CheckCircle2 size={12} />
-                                      Tham dự ({g.rsvp.tiecThanMat.attendeeCount} người)
-                                    </span>
-                                  )}
-                                  {g.rsvp?.tiecThanMat?.attending === "declined" && (
-                                    <span className="rsvp-badge declined">
-                                      <XCircle size={12} />
-                                      Bận không tới
-                                    </span>
-                                  )}
-                                  {(!g.rsvp?.tiecThanMat ||
-                                    g.rsvp?.tiecThanMat?.attending === "pending") && (
+                              {(() => {
+                                // Nhà trai: tiecThanMat | Nhà gái: tiecThanMatNhaGai
+                                const rsvp = g.side === "bride"
+                                  ? (g.rsvp?.tiecThanMatNhaGai || g.rsvp?.tiecThanMat)
+                                  : g.rsvp?.tiecThanMat;
+                                if (!rsvp || rsvp.attending === "pending") {
+                                  return (
                                     <span className="rsvp-badge pending">
                                       <Clock size={12} />
                                       Chưa phản hồi
                                     </span>
-                                  )}
-                                </div>
-                              )}
+                                  );
+                                }
+                                if (rsvp.attending === "attending") {
+                                  return (
+                                    <span className="rsvp-badge attending">
+                                      <CheckCircle2 size={12} />
+                                      Tham dự ({rsvp.attendeeCount || 1} người)
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span className="rsvp-badge declined">
+                                    <XCircle size={12} />
+                                    Bận không tới
+                                  </span>
+                                );
+                              })()}
                             </td>
 
-                            {/* RSVP Lễ Vu Quy */}
+                            {/* RSVP Lễ Chính (cột 2): Thành Hôn (nhà trai) | Vu Quy (nhà gái) */}
                             <td>
-                              {(g.invitedTo === "tiec_than_mat" || g.invitedTo === "thiep_chu_re") ? (
-                                <span style={{ color: "#B5A4A7", fontSize: "12px" }}>Không mời</span>
-                              ) : (
-                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                  {g.rsvp?.vuQuy?.attending === "attending" && (
-                                    <span className="rsvp-badge attending">
-                                      <CheckCircle2 size={12} />
-                                      Tham dự ({g.rsvp.vuQuy.attendeeCount} người)
-                                    </span>
-                                  )}
-                                  {g.rsvp?.vuQuy?.attending === "declined" && (
-                                    <span className="rsvp-badge declined">
-                                      <XCircle size={12} />
-                                      Bận không tới
-                                    </span>
-                                  )}
-                                  {(!g.rsvp?.vuQuy || g.rsvp?.vuQuy?.attending === "pending") && (
+                              {(() => {
+                                // Nhà trai: thanhHon | Nhà gái: vuQuy
+                                const rsvp = g.side === "bride"
+                                  ? g.rsvp?.vuQuy
+                                  : (g.rsvp?.thanhHon || g.rsvp?.tiecThanMat);
+                                const label = g.side === "bride" ? "Lễ Vu Quy" : "Lễ Thành Hôn";
+                                if (!rsvp || rsvp.attending === "pending") {
+                                  return (
                                     <span className="rsvp-badge pending">
                                       <Clock size={12} />
                                       Chưa phản hồi
                                     </span>
-                                  )}
-                                </div>
-                              )}
+                                  );
+                                }
+                                if (rsvp.attending === "attending") {
+                                  return (
+                                    <span className="rsvp-badge attending">
+                                      <CheckCircle2 size={12} />
+                                      {label} ({rsvp.attendeeCount || 1} người)
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span className="rsvp-badge declined">
+                                    <XCircle size={12} />
+                                    Bận không tới
+                                  </span>
+                                );
+                              })()}
                             </td>
 
 
