@@ -311,7 +311,7 @@ export default function FloatingCalendarWishes({
           </div>
 
           <div className="calendar-couple-subtext">
-            <span>Việt Long</span>
+            <span>Trường Long</span>
             <span className="heart-sep">❤</span>
             <span>Thanh Tới</span>
           </div>
